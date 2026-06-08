@@ -1,0 +1,72 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ──────────────────────────────────────────────────────────────
+   CSS 변수 (디자인 토큰)
+────────────────────────────────────────────────────────────── */
+:root {
+  /* 브랜드 컬러 */
+  --color-primary:       #0EA5E9;
+  --color-primary-light: #7DD3FC;
+  --color-primary-pale:  #E0F2FE;
+  --color-primary-dark:  #0284C7;
+  --color-accent:        #2DD4BF;
+  --color-accent-light:  #CCFBF1;
+
+  /* 시멘틱 */
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-error:   #EF4444;
+  --color-info:    #38BDF8;
+
+  /* 그레이 스케일 (sky tinted) */
+  --color-gray-50:  #F0F9FF;
+  --color-gray-100: #F1F5F9;
+  --color-gray-200: #E2E8F0;
+  --color-gray-400: #94A3B8;
+  --color-gray-600: #475569;
+  --color-gray-800: #1E293B;
+  --color-gray-900: #0F172A;
+
+  /* 히트맵 */
+  --heatmap-0: #E2E8F0;
+  --heatmap-1: #BAE6FD;
+  --heatmap-2: #38BDF8;
+  --heatmap-3: #0EA5E9;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Base Reset
+────────────────────────────────────────────────────────────── */
+* {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  background-color: var(--color-gray-50);
+  color: var(--color-gray-900);
+  font-family: 'Pretendard', 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+#root {
+  height: 100%;
+  max-width: 767px;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* 스크롤바 숨김 (모바일 웹뷰) */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* 안전 영역 (iOS 노치) */
+.safe-top    { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }

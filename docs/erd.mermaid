@@ -1,0 +1,219 @@
+---
+title: Harmrise ERD (v1.2 — 캐릭터 커스터마이징 포함)
+---
+erDiagram
+
+  users {
+    uuid    id              PK
+    varchar email           UK
+    varchar password_hash
+    varchar role            "ADMIN | MEMBER"
+    boolean is_teacher      "기본값 false"
+    varchar social_provider
+    varchar social_id
+    boolean is_active
+    timestamptz last_login_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  user_profiles {
+    uuid    id              PK
+    uuid    user_id         FK
+    varchar nickname
+    text    profile_image_url
+    int     main_instrument_id FK
+    int     daily_goal_minutes
+    int     weekly_goal_minutes
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  subscriptions {
+    uuid    id              PK
+    uuid    user_id         FK
+    varchar plan            "FREE | PREMIUM"
+    timestamptz started_at
+    timestamptz expires_at
+    boolean is_active
+    timestamptz created_at
+  }
+
+  lesson_relations {
+    uuid    id              PK
+    uuid    teacher_id      FK
+    uuid    student_id      FK
+    varchar status          "PENDING | ACTIVE | ENDED"
+    timestamptz started_at
+    timestamptz ended_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  %% ── 캐릭터 도메인 ──
+  user_characters {
+    uuid    id              PK
+    uuid    user_id         FK
+    varchar character_type  "HUMAN | ANIMAL | ROBOT"
+    int     level           "기본값 1"
+    int     exp             "경험치"
+    varchar equipped_hair   FK "character_items.id"
+    varchar equipped_outfit FK "character_items.id"
+    varchar equipped_accessory FK "character_items.id"
+    varchar equipped_background FK "character_items.id"
+    int     equipped_instrument_id FK
+    varchar skin_tone
+    varchar hair_color
+    jsonb   extras          "확장 커스터마이징"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  character_items {
+    varchar id              PK "슬러그 형태"
+    varchar item_type       "HAIR | OUTFIT | ACCESSORY | BACKGROUND"
+    varchar name
+    text    description
+    text    thumbnail_url
+    varchar unlock_condition
+    int     unlock_streak   "연속 연습 N일 조건"
+    int     unlock_level    "캐릭터 레벨 N 조건"
+    boolean is_default
+    boolean is_premium      "PREMIUM 전용"
+    int     sort_order
+    timestamptz created_at
+  }
+
+  user_unlocked_items {
+    uuid    user_id         FK
+    varchar item_id         FK
+    timestamptz unlocked_at
+  }
+
+  instruments {
+    int     id              PK
+    varchar name            UK
+    varchar category
+    boolean is_active
+  }
+
+  songs {
+    uuid    id              PK
+    uuid    user_id         FK
+    varchar title
+    varchar artist
+    int     target_bpm
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  practice_sessions {
+    uuid    id              PK
+    uuid    user_id         FK
+    uuid    song_id         FK
+    int     instrument_id   FK
+    date    practiced_at
+    int     duration_minutes
+    int     bpm
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  practice_session_types {
+    uuid    session_id      FK
+    varchar practice_type   "BASIC | SONG | IMPROVISATION | THEORY"
+  }
+
+  memos {
+    uuid    id              PK
+    uuid    user_id         FK
+    uuid    session_id      FK
+    text    content
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  bpm_records {
+    uuid    id
+    uuid    user_id         FK
+    uuid    song_id         FK
+    uuid    session_id      FK
+    int     bpm
+    timestamptz recorded_at "hypertable 파티션 키"
+  }
+
+  streaks {
+    uuid    user_id         PK "FK"
+    int     current_streak
+    int     longest_streak
+    date    last_practiced_at
+    timestamptz updated_at
+  }
+
+  reports {
+    uuid    id              PK
+    uuid    user_id         FK
+    varchar report_type     "WEEKLY | MONTHLY"
+    date    period_start
+    date    period_end
+    jsonb   data
+    timestamptz generated_at
+  }
+
+  notification_settings {
+    uuid    user_id         PK "FK"
+    boolean reminder_enabled
+    time    reminder_time
+    boolean streak_alert_enabled
+    boolean goal_alert_enabled
+    boolean report_alert_enabled
+    timestamptz updated_at
+  }
+
+  %% ──────────────────────────────────────────────
+  %% 사용자 도메인
+  %% ──────────────────────────────────────────────
+  users ||--o|  user_profiles           : "1:1"
+  users ||--o|  subscriptions           : "1:1"
+  users ||--o|  streaks                 : "1:1"
+  users ||--o|  notification_settings   : "1:1"
+
+  %% 레슨 관계 (self-referencing N:M)
+  users ||--o{  lesson_relations        : "teacher_id"
+  users ||--o{  lesson_relations        : "student_id"
+
+  %% ──────────────────────────────────────────────
+  %% 캐릭터 도메인
+  %% ──────────────────────────────────────────────
+  users         ||--o|  user_characters         : "1:1"
+  instruments   ||--o{  user_characters         : "equipped_instrument"
+  users         ||--o{  user_unlocked_items     : "user_id"
+  character_items ||--o{ user_unlocked_items    : "item_id"
+
+  %% ──────────────────────────────────────────────
+  %% 악기 / 곡 도메인
+  %% ──────────────────────────────────────────────
+  instruments   ||--o{  practice_sessions       : "instrument_id"
+  instruments   ||--o{  user_profiles           : "main_instrument_id"
+  users         ||--o{  songs                   : "user_id"
+
+  %% ──────────────────────────────────────────────
+  %% 연습 도메인
+  %% ──────────────────────────────────────────────
+  users             ||--o{  practice_sessions       : "user_id"
+  songs             ||--o{  practice_sessions       : "song_id"
+  practice_sessions ||--o{  practice_session_types  : "session_id"
+  users             ||--o{  memos                   : "user_id"
+  practice_sessions ||--o{  memos                   : "session_id"
+
+  %% ──────────────────────────────────────────────
+  %% BPM 도메인 (TimescaleDB hypertable)
+  %% ──────────────────────────────────────────────
+  users             ||--o{  bpm_records             : "user_id"
+  songs             ||--o{  bpm_records             : "song_id"
+  practice_sessions ||--o{  bpm_records             : "session_id"
+
+  %% ──────────────────────────────────────────────
+  %% 리포트 도메인
+  %% ──────────────────────────────────────────────
+  users             ||--o{  reports                 : "user_id"

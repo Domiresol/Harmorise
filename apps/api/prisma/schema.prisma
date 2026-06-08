@@ -1,0 +1,437 @@
+// ──────────────────────────────────────────────────────────────
+// Harmrise — Prisma Schema
+// DB: PostgreSQL 16 + TimescaleDB
+// 버전: v1.2  (캐릭터 커스터마이징 시스템 추가)
+// ──────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/.prisma/client"
+}
+
+/// Seed: npx ts-node apps/api/prisma/seed.ts
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────────────────────
+// ENUM 정의
+// ──────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum LessonStatus {
+  PENDING
+  ACTIVE
+  ENDED
+}
+
+enum PracticeType {
+  BASIC         // 기초 연습
+  SONG          // 곡 연습
+  IMPROVISATION // 즉흥 연주
+  THEORY        // 이론 학습
+}
+
+enum ReportType {
+  WEEKLY
+  MONTHLY
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+}
+
+enum CharacterType {
+  HUMAN   // 사람형
+  ANIMAL  // 동물형
+  ROBOT   // 로봇형
+}
+
+enum ItemType {
+  HAIR        // 헤어 스타일
+  OUTFIT      // 의상
+  ACCESSORY   // 악세서리
+  BACKGROUND  // 배경 테마
+}
+
+// ──────────────────────────────────────────────────────────────
+// 전화번호 인증 도메인
+// ──────────────────────────────────────────────────────────────
+
+model PhoneVerification {
+  id        String   @id @default(uuid())
+  phone     String   @db.VarChar(20)
+  code      String   @db.VarChar(6)
+  expiresAt DateTime @db.Timestamptz
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([phone])
+  @@map("phone_verifications")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 사용자 도메인
+// ──────────────────────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique @db.VarChar(255)
+  passwordHash   String?   @db.VarChar(255)           // 소셜 로그인 시 NULL
+  role           Role      @default(MEMBER)
+  isTeacher      Boolean   @default(false)             // TRUE면 레슨 제공 가능
+  phone          String?   @unique @db.VarChar(20)    // 전화번호 (인증 완료 후 저장)
+  socialProvider String?   @db.VarChar(20)            // kakao | google | apple
+  socialId       String?   @db.VarChar(255)
+  isActive       Boolean   @default(true)
+  lastLoginAt    DateTime? @db.Timestamptz
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @db.Timestamptz
+
+  // Relations
+  profile              UserProfile?
+  subscription         Subscription?
+  streak               Streak?
+  notificationSettings NotificationSettings?
+  songs                Song[]
+  practiceSessions     PracticeSession[]
+  memos                Memo[]
+  bpmRecords           BpmRecord[]
+  reports              Report[]
+  teachingRelations    LessonRelation[] @relation("TeacherRelation")
+  studentRelations     LessonRelation[] @relation("StudentRelation")
+  character            UserCharacter?
+  unlockedItems        UserUnlockedItem[]
+  auditLogs            AuditLog[]
+
+  @@map("users")
+}
+
+model UserProfile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  nickname           String   @db.VarChar(50)
+  profileImageUrl    String?
+  mainInstrumentId   String?
+  dailyGoalMinutes   Int      @default(30)
+  weeklyGoalMinutes  Int      @default(150)
+  createdAt          DateTime @default(now()) @db.Timestamptz
+  updatedAt          DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mainInstrument Instrument? @relation(fields: [mainInstrumentId], references: [id])
+
+  @@map("user_profiles")
+}
+
+model Subscription {
+  id        String           @id @default(uuid())
+  userId    String           @unique
+  plan      SubscriptionPlan @default(FREE)
+  startedAt DateTime         @default(now()) @db.Timestamptz
+  expiresAt DateTime?        @db.Timestamptz  // FREE는 NULL
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now()) @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model LessonRelation {
+  id        String       @id @default(uuid())
+  teacherId String
+  studentId String
+  status    LessonStatus @default(PENDING)
+  startedAt DateTime?    @db.Timestamptz
+  endedAt   DateTime?    @db.Timestamptz
+  createdAt DateTime     @default(now()) @db.Timestamptz
+  updatedAt DateTime     @updatedAt @db.Timestamptz
+
+  // Relations
+  teacher User @relation("TeacherRelation", fields: [teacherId], references: [id])
+  student User @relation("StudentRelation", fields: [studentId], references: [id])
+
+  @@unique([teacherId, studentId])
+  @@index([teacherId])
+  @@index([studentId])
+  @@map("lesson_relations")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 캐릭터 도메인
+// ──────────────────────────────────────────────────────────────
+
+model UserCharacter {
+  id                  String        @id @default(uuid())
+  userId              String        @unique
+  characterType       CharacterType @default(HUMAN)
+  level               Int           @default(1)
+  exp                 Int           @default(0)
+
+  // 장착 중인 아이템 슬롯 (character_items.id — UUID)
+  equippedHair        String?                        // character_items.id
+  equippedOutfit      String?                        // character_items.id
+  equippedAccessory   String?                        // character_items.id
+  equippedBackground  String?                        // character_items.id
+  equippedInstrumentId String?                       // instruments.id
+
+  // 기본 외형
+  skinTone            String        @default("default") @db.VarChar(20)
+  hairColor           String        @default("default") @db.VarChar(20)
+
+  // 확장 커스터마이징
+  extras              Json          @default("{}")
+
+  createdAt           DateTime      @default(now()) @db.Timestamptz
+  updatedAt           DateTime      @updatedAt @db.Timestamptz
+
+  // Relations
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equippedInstrument Instrument? @relation(fields: [equippedInstrumentId], references: [id])
+
+  @@map("user_characters")
+}
+
+model CharacterItem {
+  id               String   @id @default(uuid())
+  code             String   @unique @db.VarChar(50)  // 내부 식별 코드: 'outfit_rock_001'
+  itemType         ItemType
+  name             String   @db.VarChar(100)
+  description      String?
+  thumbnailUrl     String?
+  unlockCondition  String?  @db.VarChar(200)       // UI 표시용 텍스트
+  unlockStreak     Int?                             // 연속 연습 N일 조건
+  unlockLevel      Int?                             // 캐릭터 레벨 N 달성 조건
+  isDefault        Boolean  @default(false)
+  isPremium        Boolean  @default(false)         // PREMIUM 구독자 전용
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now()) @db.Timestamptz
+
+  // Relations
+  unlockedBy UserUnlockedItem[]
+
+  @@map("character_items")
+}
+
+model UserUnlockedItem {
+  userId     String
+  itemId     String                                 // character_items.id — UUID
+  unlockedAt DateTime @default(now()) @db.Timestamptz
+
+  // Relations
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item CharacterItem @relation(fields: [itemId], references: [id])
+
+  @@id([userId, itemId])
+  @@index([userId])
+  @@map("user_unlocked_items")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 악기 / 곡 도메인
+// ──────────────────────────────────────────────────────────────
+
+model Instrument {
+  id       String  @id @default(uuid())
+  name     String  @unique @db.VarChar(50)
+  category String? @db.VarChar(50)  // 현악기 | 건반 | 타악기 등
+  isActive Boolean @default(true)
+
+  // Relations
+  practiceSessions  PracticeSession[]
+  userProfiles      UserProfile[]
+  userCharacters    UserCharacter[]
+
+  @@map("instruments")
+}
+
+model Song {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String   @db.VarChar(200)
+  artist    String?  @db.VarChar(200)
+  targetBpm Int?
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  practiceSessions PracticeSession[]
+  bpmRecords       BpmRecord[]
+
+  @@index([userId])
+  @@map("songs")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 연습 도메인
+// ──────────────────────────────────────────────────────────────
+
+model PracticeSession {
+  id              String   @id @default(uuid())
+  userId          String
+  songId          String?
+  instrumentId    String?
+  practicedAt     DateTime @default(now()) @db.Date
+  durationMinutes Int      // 1~720 분
+  bpm             Int?     // 이 세션의 BPM
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  song         Song?                   @relation(fields: [songId], references: [id], onDelete: SetNull)
+  instrument   Instrument?             @relation(fields: [instrumentId], references: [id])
+  sessionTypes PracticeSessionType[]
+  memos        Memo[]
+  bpmRecords   BpmRecord[]
+
+  @@index([userId])
+  @@index([practicedAt(sort: Desc)])
+  @@index([userId, practicedAt(sort: Desc)])
+  @@map("practice_sessions")
+}
+
+model PracticeSessionType {
+  sessionId    String
+  practiceType PracticeType
+
+  // Relations
+  session PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, practiceType])
+  @@map("practice_session_types")
+}
+
+model Memo {
+  id        String   @id @default(uuid())
+  userId    String
+  sessionId String?  // NULL 가능 — 독립 메모
+  content   String   // 최대 1,000자
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session PracticeSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@map("memos")
+}
+
+// ──────────────────────────────────────────────────────────────
+// BPM 도메인 (TimescaleDB hypertable)
+// NOTE: hypertable 변환은 마이그레이션 이후 별도 SQL로 실행:
+//   SELECT create_hypertable('bpm_records', 'recorded_at');
+// ──────────────────────────────────────────────────────────────
+
+model BpmRecord {
+  id         String   @default(uuid())
+  userId     String
+  songId     String
+  sessionId  String?
+  bpm        Int
+  recordedAt DateTime @default(now()) @db.Timestamptz  // 파티션 기준
+
+  // Relations
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  song    Song             @relation(fields: [songId], references: [id], onDelete: Cascade)
+  session PracticeSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  // hypertable이므로 PK 대신 복합 인덱스로 관리
+  @@id([id, recordedAt])
+  @@index([userId, songId, recordedAt(sort: Desc)])
+  @@map("bpm_records")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 통계 / 리포트 도메인
+// ──────────────────────────────────────────────────────────────
+
+model Streak {
+  userId           String    @id
+  currentStreak    Int       @default(0)
+  longestStreak    Int       @default(0)
+  lastPracticedAt  DateTime? @db.Date
+  updatedAt        DateTime  @updatedAt @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("streaks")
+}
+
+model Report {
+  id          String     @id @default(uuid())
+  userId      String
+  reportType  ReportType
+  periodStart DateTime   @db.Date
+  periodEnd   DateTime   @db.Date
+  data        Json       @default("{}")
+  generatedAt DateTime   @default(now()) @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reportType, periodStart])
+  @@index([userId, reportType, periodStart(sort: Desc)])
+  @@map("reports")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 알림 설정 도메인
+// ──────────────────────────────────────────────────────────────
+
+model NotificationSettings {
+  userId              String   @id
+  reminderEnabled     Boolean  @default(false)
+  reminderTime        DateTime? @db.Time       // 예: '20:00:00'
+  streakAlertEnabled  Boolean  @default(true)
+  goalAlertEnabled    Boolean  @default(true)
+  reportAlertEnabled  Boolean  @default(true)
+  updatedAt           DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_settings")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 감사 로그 도메인 (Audit Log)
+// ──────────────────────────────────────────────────────────────
+
+enum AuditAction {
+  LOGIN_SUCCESS
+  LOGIN_FAIL
+  PRACTICE_CREATE
+  PRACTICE_DELETE
+  PROFILE_UPDATE
+  ADMIN_USER_STATUS_CHANGE
+}
+
+model AuditLog {
+  id        String      @id @default(uuid())
+  userId    String?     // nullable — 로그인 실패처럼 유저 특정 불가한 경우
+  action    AuditAction
+  meta      Json        @default("{}")  // 부가 정보 (ip, targetId 등)
+  createdAt DateTime    @default(now()) @db.Timestamptz
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
