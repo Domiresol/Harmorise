@@ -39,7 +39,6 @@ export function SettingsPage() {
   const { user, logout } = useAuth();
 
   const nickname = user?.profile?.nickname  ?? '연습생';
-  const level    = user?.character?.level   ?? 1;
   const plan     = user?.subscription?.plan ?? 'FREE';
 
   return (
@@ -52,13 +51,8 @@ export function SettingsPage() {
         className="mb-5 flex items-center gap-4"
         onClick={() => navigate('/settings/profile')}
       >
-        <div className="relative">
-          <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center text-3xl shadow-sm">
-            🎸
-          </div>
-          <span className="absolute -bottom-1 -right-1 bg-accent text-white text-xs font-bold px-1.5 py-0.5 rounded-pill">
-            Lv.{level}
-          </span>
+        <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center text-3xl shadow-sm">
+          🎸
         </div>
         <div className="flex-1">
           <p className="text-lg font-bold text-slate-900">{nickname}</p>
@@ -75,16 +69,7 @@ export function SettingsPage() {
 
       {/* ── 메뉴 ─────────────────────────────────────────── */}
       <Card className="mb-4">
-        <MenuRow icon="🎸" label="프로필 설정"  onClick={() => navigate('/settings/profile')} />
-        <Divider />
-        <MenuRow icon="🔔" label="알림 설정"    onClick={() => navigate('/settings/notifications')} />
-        <Divider />
-        <MenuRow
-          icon="⭐"
-          label="구독 관리"
-          badge={<Badge variant="premium">PREMIUM</Badge>}
-          onClick={() => {}}
-        />
+        <MenuRow icon="🎸" label="프로필 설정" onClick={() => navigate('/settings/profile')} />
       </Card>
 
       {/* ── 연습 도구 ──────────────────────────────────────── */}
@@ -95,9 +80,7 @@ export function SettingsPage() {
       </Card>
 
       <Card className="mb-4">
-        <MenuRow icon="🔐" label="계정 관리"    onClick={() => navigate('/settings/account')} />
-        <Divider />
-        <MenuRow icon="📄" label="이용약관"     onClick={() => {}} />
+        <MenuRow icon="📄" label="이용약관"        onClick={() => {}} />
         <Divider />
         <MenuRow icon="🔏" label="개인정보처리방침" onClick={() => {}} />
       </Card>

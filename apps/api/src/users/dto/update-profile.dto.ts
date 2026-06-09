@@ -3,8 +3,18 @@ import { IsString, IsOptional, IsInt, Min, Max, MaxLength } from 'class-validato
 export class UpdateProfileDto {
   @IsOptional()
   @IsString()
-  @MaxLength(50)
+  @MaxLength(30)
   declare nickname?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  declare handle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  declare bio?: string;
 
   @IsOptional()
   @IsString()

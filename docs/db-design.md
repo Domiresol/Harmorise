@@ -2,7 +2,7 @@
 
 > **프로젝트:** Harmorise
 > **작성팀:** 개발팀
-> **버전:** v1.1
+> **버전:** v1.3
 > **작성일:** 2026년 5월 22일
 > **DB:** PostgreSQL 16 + TimescaleDB
 
@@ -16,15 +16,15 @@
 │  users / user_profiles / subscriptions / lesson_relations│
 └──────────────────────────┬──────────────────────────────┘
                            │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-┌───────▼──────┐  ┌────────▼───────┐  ┌──────▼──────────┐
-│  연습 도메인  │  │   곡/악기 도메인 │  │   리포트 도메인  │
-│  practice_   │  │  songs         │  │  reports        │
-│  sessions    │  │  instruments   │  │  streaks        │
-│  memos       │  │                │  │                 │
-└───────┬──────┘  └────────────────┘  └─────────────────┘
-        │
+        ┌──────────────────┼──────────────────┬───────────────────┐
+        │                  │                  │                   │
+┌───────▼──────┐  ┌────────▼───────┐  ┌──────▼──────────┐  ┌────▼──────────────────┐
+│  연습 도메인  │  │   곡/악기 도메인 │  │   리포트 도메인  │  │   커뮤니티 도메인       │
+│  practice_   │  │  songs         │  │  reports        │  │  friend_requests       │
+│  sessions    │  │  instruments   │  │  streaks        │  │  friends               │
+│  memos       │  │                │  │                 │  │  rooms / room_members  │
+└───────┬──────┘  └────────────────┘  └─────────────────┘  │  room_join_requests   │
+        │                                                   └───────────────────────┘
 ┌───────▼──────────────────┐
 │  BPM 도메인 (TimescaleDB) │
 │  bpm_records (hypertable) │
@@ -644,11 +644,107 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
 
 ---
 
-## 8. 추후 확장 고려 테이블
+## 8. 커뮤니티 도메인 (Phase 2 추가, v1.3)
+
+### user_profiles 변경사항
+
+| 컬럼 추가 | 타입 | 설명 |
+|-----------|------|------|
+| `handle` | VARCHAR(30) UNIQUE | @handle (가입 시 자동 생성, 1회 변경 가능) |
+| `bio` | VARCHAR(150)? | 자기소개 |
+| `nicknameChangedAt` | TIMESTAMPTZ? | 닉네임 마지막 변경 시각 (월 1회 제한) |
+
+---
+
+### friend_requests
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | TEXT (UUID) | PK |
+| fromUserId | TEXT | FK → users.id |
+| toUserId | TEXT | FK → users.id |
+| status | FriendRequestStatus | PENDING / ACCEPTED / REJECTED |
+| createdAt | TIMESTAMPTZ | 요청 시각 |
+| updatedAt | TIMESTAMPTZ | 상태 변경 시각 |
+
+**인덱스:** (toUserId, status), (fromUserId, status)
+
+---
+
+### friends
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| userId | TEXT | FK → users.id |
+| friendId | TEXT | FK → users.id |
+| createdAt | TIMESTAMPTZ | 친구 맺은 시각 |
+
+**PK:** (userId, friendId)  
+**설계 원칙:** 수락 시 (A→B), (B→A) 2행 삽입 → 단순 `userId` 조건 쿼리 가능
+
+---
+
+### rooms
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | TEXT (UUID) | PK |
+| name | VARCHAR(20) | 방 이름 |
+| description | VARCHAR(100)? | 방 설명 |
+| hostId | TEXT | FK → users.id |
+| inviteCode | CHAR(6) UNIQUE | 초대코드 (대문자+숫자) |
+| isActive | BOOLEAN | 활성 여부 |
+| createdAt | TIMESTAMPTZ | 생성 시각 |
+| updatedAt | TIMESTAMPTZ | 수정 시각 |
+
+**인덱스:** inviteCode (UNIQUE), hostId
+
+---
+
+### room_members
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| roomId | TEXT | FK → rooms.id |
+| userId | TEXT | FK → users.id |
+| role | RoomMemberRole | HOST / MEMBER |
+| joinedAt | TIMESTAMPTZ | 입장 시각 |
+
+**PK:** (roomId, userId)
+
+---
+
+### room_join_requests
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | TEXT (UUID) | PK |
+| roomId | TEXT | FK → rooms.id |
+| userId | TEXT | FK → users.id |
+| status | RoomJoinRequestStatus | PENDING / ACCEPTED / REJECTED |
+| createdAt | TIMESTAMPTZ | 요청 시각 |
+| updatedAt | TIMESTAMPTZ | 상태 변경 시각 |
+
+**인덱스:** (roomId, status), (userId, status)
+
+---
+
+### 커뮤니티 도메인 인덱스 추가
+
+| 테이블 | 인덱스 | 목적 |
+|--------|--------|------|
+| user_profiles | handle (UNIQUE) | @handle 검색 |
+| user_profiles | nickname (GIN/LIKE) | 닉네임 검색 |
+| friends | userId | 내 친구 목록 조회 |
+| room_join_requests | (roomId, status) | 방장 수락 대기 목록 |
+| rooms | inviteCode (UNIQUE) | 초대코드 입장 |
+
+---
+
+## 9. 추후 확장 고려 테이블
 
 | 테이블명 | 설명 | Phase |
 |---------|------|-------|
 | `lesson_feedbacks` | 선생님이 학생 기록에 남기는 피드백 | Phase 3 |
-| `community_posts` | 연습 기록 공유 게시글 | Phase 3 |
 | `ai_recommendations` | AI 맞춤 루틴 추천 결과 | Phase 3 |
 | `audio_analyses` | 오디오 분석 결과 | Phase 3 |

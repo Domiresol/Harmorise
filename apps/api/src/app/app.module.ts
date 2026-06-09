@@ -6,10 +6,12 @@ import { AuthModule }     from '../auth/auth.module';
 import { UsersModule }    from '../users/users.module';
 import { PracticeModule } from '../practice/practice.module';
 import { AdminModule }    from '../admin/admin.module';
-import { BpmModule }        from '../bpm/bpm.module';
-import { SongsModule }      from '../songs/songs.module';
-import { AuditLogModule }   from '../audit-log/audit-log.module';
-import { AppController }    from './app.controller';
+import { BpmModule }      from '../bpm/bpm.module';
+import { SongsModule }    from '../songs/songs.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
+import { FriendsModule }  from '../friends/friends.module';
+import { RoomsModule }    from '../rooms/rooms.module';
+import { AppController }  from './app.controller';
 import { AppService }     from './app.service';
 
 @Module({
@@ -23,6 +25,8 @@ import { AppService }     from './app.service';
     BpmModule,
     SongsModule,
     AuditLogModule,
+    FriendsModule,
+    RoomsModule,
   ],
   controllers: [AppController],
   providers:   [AppService],

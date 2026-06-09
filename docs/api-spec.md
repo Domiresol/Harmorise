@@ -781,3 +781,300 @@ DB에 기록되는 내부 이벤트 로그. 별도 API 엔드포인트 없이 �
 | action | AuditAction enum | 이벤트 종류 |
 | meta | JSONB | 부가 정보 (ip, targetId, reason 등) |
 | createdAt | TIMESTAMPTZ | 기록 시각 |
+
+---
+
+## 커뮤니티 API (Phase 2)
+
+> **최종 업데이트** 2026-06-09 (친구 시스템, 연습방 추가)
+
+---
+
+### 유저 검색
+
+#### `GET /users/search`
+
+닉네임 또는 @handle로 유저 검색.
+
+| 쿼리 파라미터 | 타입 | 설명 |
+|--------------|------|------|
+| `q` | string | 검색어 (최소 1자) |
+
+**Response 200**
+```json
+[
+  {
+    "userId": "uuid",
+    "nickname": "세솔",
+    "handle": "sesol",
+    "profileImageUrl": null,
+    "mainInstrument": "기타",
+    "isFriend": false,
+    "requestPending": true
+  }
+]
+```
+
+---
+
+### 친구 API
+
+#### `POST /friends/requests` — 친구 요청
+
+**Request body**
+```json
+{ "toUserId": "uuid" }
+```
+**Response 201** `{ "requestId": "uuid" }`
+
+**에러**
+- 400: 자기 자신에게 요청
+- 409: 이미 친구이거나 대기 중 요청 존재
+
+---
+
+#### `GET /friends/requests` — 받은 친구 요청 목록
+
+**Response 200**
+```json
+[
+  {
+    "requestId": "uuid",
+    "fromUser": { "userId": "uuid", "nickname": "세솔", "handle": "sesol", "profileImageUrl": null },
+    "createdAt": "2026-06-09T00:00:00Z"
+  }
+]
+```
+
+---
+
+#### `PATCH /friends/requests/:requestId` — 친구 요청 수락/거절
+
+**Request body**
+```json
+{ "action": "accept" }  // or "reject"
+```
+**Response 200** `{ "ok": true }`
+
+**수락 시:** `friends` 테이블에 양방향 2개 행 삽입 (트랜잭션)
+
+---
+
+#### `GET /friends` — 내 친구 목록
+
+**Response 200**
+```json
+[
+  {
+    "userId": "uuid",
+    "nickname": "세솔",
+    "handle": "sesol",
+    "profileImageUrl": null,
+    "mainInstrument": "기타",
+    "practicedToday": true
+  }
+]
+```
+
+---
+
+#### `DELETE /friends/:friendId` — 친구 삭제
+
+양방향 `friends` 행 모두 삭제.
+
+**Response 200** `{ "ok": true }`
+
+---
+
+#### `GET /friends/:userId/profile` — 친구 프로필 조회
+
+친구 관계 확인 후 공개 정보 반환. 메모·세션 상세 제외.
+
+**Response 200**
+```json
+{
+  "userId": "uuid",
+  "nickname": "세솔",
+  "handle": "sesol",
+  "bio": "기타 독학 2년차",
+  "profileImageUrl": null,
+  "mainInstrument": "기타",
+  "currentStreak": 7,
+  "longestStreak": 21,
+  "thisMonthDays": 12,
+  "thisMonthMinutes": 480
+}
+```
+
+**에러** 403: 친구 관계 아님
+
+---
+
+### 연습방 API
+
+#### `POST /rooms` — 방 생성
+
+**Request body**
+```json
+{ "name": "기타 스터디", "description": "매일 30분 목표" }
+```
+**Response 201** `{ "id": "uuid", "inviteCode": "AB1CD2" }`
+
+---
+
+#### `GET /rooms` — 내 참여 방 목록
+
+**Response 200**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "기타 스터디",
+    "description": "...",
+    "memberCount": 5,
+    "myRole": "HOST"
+  }
+]
+```
+
+---
+
+#### `GET /rooms/:roomId` — 방 상세
+
+**Response 200**
+```json
+{
+  "id": "uuid",
+  "name": "기타 스터디",
+  "description": "...",
+  "inviteCode": "AB1CD2",   // HOST에게만 노출 (MEMBER는 null)
+  "memberCount": 5,
+  "myRole": "HOST"
+}
+```
+
+---
+
+#### `POST /rooms/join` — 입장 요청 (초대코드)
+
+**Request body**
+```json
+{ "inviteCode": "AB1CD2" }
+```
+**Response 201** `{ "requestId": "uuid", "roomName": "기타 스터디" }`
+
+**에러**
+- 404: 코드 없음
+- 409: 이미 멤버 / 이미 요청 중
+- 422: 멤버 한도 초과 (20명) / 참여 방 한도 초과 (10개)
+
+---
+
+#### `GET /rooms/:roomId/join-requests` — 입장 요청 목록 (방장)
+
+**Response 200**
+```json
+[
+  {
+    "requestId": "uuid",
+    "user": { "userId": "uuid", "nickname": "세솔", "handle": "sesol" },
+    "requestedAt": "2026-06-09T00:00:00Z"
+  }
+]
+```
+
+---
+
+#### `PATCH /rooms/:roomId/join-requests/:requestId` — 입장 요청 수락/거절 (방장)
+
+**Request body**
+```json
+{ "action": "accept" }  // or "reject"
+```
+**Response 200** `{ "ok": true }`
+
+---
+
+#### `GET /rooms/:roomId/feed` — 방 피드 (커서 페이지네이션)
+
+| 쿼리 파라미터 | 타입 | 설명 |
+|--------------|------|------|
+| `cursor` | string? | 마지막 항목 ID |
+| `limit` | number? | 기본 20 |
+
+**Response 200**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "user": { "userId": "uuid", "nickname": "세솔", "handle": "sesol", "profileImageUrl": null },
+      "practicedAt": "2026-06-09",
+      "durationMinutes": 45,
+      "instrumentName": "기타",
+      "songTitle": "Canon",
+      "bpm": 120,
+      "createdAt": "2026-06-09T10:00:00Z"
+    }
+  ],
+  "nextCursor": "uuid-or-null"
+}
+```
+> 메모 내용은 항상 제외됨.
+
+---
+
+#### `GET /rooms/:roomId/members` — 멤버 목록
+
+**Response 200**
+```json
+[
+  {
+    "userId": "uuid",
+    "nickname": "세솔",
+    "handle": "sesol",
+    "profileImageUrl": null,
+    "role": "HOST",
+    "weekPracticedDays": 5
+  }
+]
+```
+
+---
+
+#### `PATCH /rooms/:roomId` — 방 정보 수정 (방장)
+
+**Request body**
+```json
+{ "name": "새 이름", "description": "새 설명" }
+```
+**Response 200** `{ "ok": true }`
+
+---
+
+#### `POST /rooms/:roomId/invite-code/refresh` — 초대코드 재발급 (방장)
+
+**Response 200** `{ "inviteCode": "XY9ZW3" }`
+
+---
+
+#### `POST /rooms/:roomId/transfer-host` — 방장 위임 (방장)
+
+**Request body**
+```json
+{ "newHostId": "uuid" }
+```
+**Response 200** `{ "ok": true }`
+
+---
+
+#### `DELETE /rooms/:roomId/members/:userId` — 멤버 강퇴 (방장)
+
+**Response 200** `{ "ok": true }`
+
+---
+
+#### `DELETE /rooms/:roomId` — 방 삭제 (방장)
+
+**Response 200** `{ "ok": true }`
+

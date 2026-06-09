@@ -1,5 +1,5 @@
 ---
-title: Harmrise ERD (v1.2 — 캐릭터 커스터마이징 포함)
+title: Harmorise ERD (v1.3 — 커뮤니티 도메인 추가 / 캐릭터 제거)
 ---
 erDiagram
 
@@ -21,10 +21,13 @@ erDiagram
     uuid    id              PK
     uuid    user_id         FK
     varchar nickname
+    varchar handle          UK "@ handle"
+    varchar bio             "자기소개 최대 150자"
     text    profile_image_url
     int     main_instrument_id FK
     int     daily_goal_minutes
     int     weekly_goal_minutes
+    timestamptz nickname_changed_at "닉네임 변경 시각 (월 1회 제한)"
     timestamptz created_at
     timestamptz updated_at
   }
@@ -48,46 +51,6 @@ erDiagram
     timestamptz ended_at
     timestamptz created_at
     timestamptz updated_at
-  }
-
-  %% ── 캐릭터 도메인 ──
-  user_characters {
-    uuid    id              PK
-    uuid    user_id         FK
-    varchar character_type  "HUMAN | ANIMAL | ROBOT"
-    int     level           "기본값 1"
-    int     exp             "경험치"
-    varchar equipped_hair   FK "character_items.id"
-    varchar equipped_outfit FK "character_items.id"
-    varchar equipped_accessory FK "character_items.id"
-    varchar equipped_background FK "character_items.id"
-    int     equipped_instrument_id FK
-    varchar skin_tone
-    varchar hair_color
-    jsonb   extras          "확장 커스터마이징"
-    timestamptz created_at
-    timestamptz updated_at
-  }
-
-  character_items {
-    varchar id              PK "슬러그 형태"
-    varchar item_type       "HAIR | OUTFIT | ACCESSORY | BACKGROUND"
-    varchar name
-    text    description
-    text    thumbnail_url
-    varchar unlock_condition
-    int     unlock_streak   "연속 연습 N일 조건"
-    int     unlock_level    "캐릭터 레벨 N 조건"
-    boolean is_default
-    boolean is_premium      "PREMIUM 전용"
-    int     sort_order
-    timestamptz created_at
-  }
-
-  user_unlocked_items {
-    uuid    user_id         FK
-    varchar item_id         FK
-    timestamptz unlocked_at
   }
 
   instruments {
@@ -170,6 +133,49 @@ erDiagram
     timestamptz updated_at
   }
 
+  %% ── 커뮤니티 도메인 ──
+  friend_requests {
+    uuid    id              PK
+    uuid    from_user_id    FK
+    uuid    to_user_id      FK
+    varchar status          "PENDING | ACCEPTED | REJECTED"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  friends {
+    uuid    user_id         FK
+    uuid    friend_id       FK
+    timestamptz created_at
+  }
+
+  rooms {
+    uuid    id              PK
+    uuid    host_id         FK
+    varchar name            "최대 20자"
+    varchar description     "최대 100자"
+    varchar invite_code     UK "6자리 대문자+숫자"
+    int     max_members     "기본값 20"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  room_members {
+    uuid    room_id         FK
+    uuid    user_id         FK
+    varchar role            "HOST | MEMBER"
+    timestamptz joined_at
+  }
+
+  room_join_requests {
+    uuid    id              PK
+    uuid    room_id         FK
+    uuid    user_id         FK
+    varchar status          "PENDING | ACCEPTED | REJECTED"
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
   %% ──────────────────────────────────────────────
   %% 사용자 도메인
   %% ──────────────────────────────────────────────
@@ -181,14 +187,6 @@ erDiagram
   %% 레슨 관계 (self-referencing N:M)
   users ||--o{  lesson_relations        : "teacher_id"
   users ||--o{  lesson_relations        : "student_id"
-
-  %% ──────────────────────────────────────────────
-  %% 캐릭터 도메인
-  %% ──────────────────────────────────────────────
-  users         ||--o|  user_characters         : "1:1"
-  instruments   ||--o{  user_characters         : "equipped_instrument"
-  users         ||--o{  user_unlocked_items     : "user_id"
-  character_items ||--o{ user_unlocked_items    : "item_id"
 
   %% ──────────────────────────────────────────────
   %% 악기 / 곡 도메인
@@ -204,7 +202,7 @@ erDiagram
   songs             ||--o{  practice_sessions       : "song_id"
   practice_sessions ||--o{  practice_session_types  : "session_id"
   users             ||--o{  memos                   : "user_id"
-  practice_sessions ||--o{  memos                   : "session_id"
+  practice_sessions ||--o|  memos                   : "session_id"
 
   %% ──────────────────────────────────────────────
   %% BPM 도메인 (TimescaleDB hypertable)
@@ -217,3 +215,16 @@ erDiagram
   %% 리포트 도메인
   %% ──────────────────────────────────────────────
   users             ||--o{  reports                 : "user_id"
+
+  %% ──────────────────────────────────────────────
+  %% 커뮤니티 도메인
+  %% ──────────────────────────────────────────────
+  users ||--o{  friend_requests         : "from_user_id"
+  users ||--o{  friend_requests         : "to_user_id"
+  users ||--o{  friends                 : "user_id"
+  users ||--o{  friends                 : "friend_id"
+  users ||--o{  rooms                   : "host_id"
+  users ||--o{  room_members            : "user_id"
+  users ||--o{  room_join_requests      : "user_id"
+  rooms ||--o{  room_members            : "room_id"
+  rooms ||--o{  room_join_requests      : "room_id"

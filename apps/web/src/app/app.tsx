@@ -18,6 +18,7 @@ import { FindIdPage }        from '../pages/FindIdPage';
 import { ResetPasswordPage } from '../pages/ResetPasswordPage';
 
 // Pages — 메인 탭 (보호)
+import { OnboardingPage }   from '../pages/OnboardingPage';
 import { HomePage }         from '../pages/HomePage';
 import { PracticeListPage } from '../pages/PracticeListPage';
 import { PracticeNewPage }  from '../pages/PracticeNewPage';
@@ -37,9 +38,20 @@ import { ProfileSettingsPage } from '../pages/ProfileSettingsPage';
 import { AccountPage }         from '../pages/AccountPage';
 import { MetronomePage }       from '../pages/MetronomePage';
 import { TunerPage }           from '../pages/TunerPage';
+// 커뮤니티
+import { CommunityPage }      from '../pages/CommunityPage';
+import { FriendsPage }        from '../pages/FriendsPage';
+import { FriendSearchPage }   from '../pages/FriendSearchPage';
+import { FriendProfilePage }  from '../pages/FriendProfilePage';
+import { RoomsPage }          from '../pages/RoomsPage';
+import { RoomDetailPage }     from '../pages/RoomDetailPage';
+import { RoomNewPage }        from '../pages/RoomNewPage';
+import { RoomSettingsPage }   from '../pages/RoomSettingsPage';
 
-/** 하단 탭 바 + FAB를 노출할 경로 */
-const TAB_ROUTES = ['/home', '/practice', '/calendar', '/report', '/settings', '/bpm'];
+/** 하단 탭 바를 노출할 경로 */
+const TAB_ROUTES = ['/home', '/practice', '/calendar', '/report', '/settings', '/bpm', '/community'];
+/** FAB(연습 기록 추가)를 노출할 경로 — 커뮤니티·설정 제외 */
+const FAB_ROUTES = ['/home', '/practice', '/calendar', '/report', '/bpm'];
 
 function P({ children }: { children: React.ReactNode }) {
   return <PrivateRoute>{children}</PrivateRoute>;
@@ -48,6 +60,7 @@ function P({ children }: { children: React.ReactNode }) {
 function AppShell() {
   const location = useLocation();
   const showTab = TAB_ROUTES.some((r) => location.pathname === r);
+  const showFab = FAB_ROUTES.some((r) => location.pathname === r);
 
   return (
     <div className="flex flex-col h-full">
@@ -55,6 +68,7 @@ function AppShell() {
         {/* ── 공개 화면 ───────────────────────────────── */}
         <Route path="/"              element={<LandingPage />} />
         <Route path="/login"          element={<LoginPage />} />
+        <Route path="/onboarding"     element={<P><OnboardingPage /></P>} />
         <Route path="/signup"         element={<SignupPage />} />
         <Route path="/find-id"        element={<FindIdPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -84,6 +98,16 @@ function AppShell() {
         <Route path="/settings/profile" element={<P><ProfileSettingsPage /></P>} />
         <Route path="/settings/account" element={<P><AccountPage /></P>} />
 
+        {/* ── 보호 화면 — 커뮤니티 ───────────────────── */}
+        <Route path="/community"                          element={<P><CommunityPage /></P>} />
+        <Route path="/community/friends"                  element={<P><FriendsPage /></P>} />
+        <Route path="/community/friends/search"           element={<P><FriendSearchPage /></P>} />
+        <Route path="/community/friends/:userId"          element={<P><FriendProfilePage /></P>} />
+        <Route path="/community/rooms"                    element={<P><RoomsPage /></P>} />
+        <Route path="/community/rooms/new"                element={<P><RoomNewPage /></P>} />
+        <Route path="/community/rooms/:roomId"            element={<P><RoomDetailPage /></P>} />
+        <Route path="/community/rooms/:roomId/settings"   element={<P><RoomSettingsPage /></P>} />
+
         {/* ── 보호 화면 — 연습 도구 ───────────────────── */}
         <Route path="/metronome" element={<P><MetronomePage /></P>} />
         <Route path="/tuner"     element={<P><TunerPage /></P>} />
@@ -98,12 +122,8 @@ function AppShell() {
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>
 
-      {showTab && (
-        <>
-          <BottomTabBar />
-          <FAB />
-        </>
-      )}
+      {showTab && <BottomTabBar />}
+      {showFab && <FAB />}
     </div>
   );
 }

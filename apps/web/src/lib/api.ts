@@ -12,16 +12,21 @@ export async function apiFetch<T>(
   // 명시적으로 토큰 전달하면 그걸 쓰고, 없으면 localStorage에서 자동으로
   const token = options.token ?? localStorage.getItem(TOKEN_KEY) ?? undefined;
 
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error('서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.');
+  }
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
     // 401이면 토큰 만료 → 스토리지 정리

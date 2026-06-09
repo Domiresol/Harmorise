@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────────────────────
-// Harmrise — Prisma Schema
+// Harmorise — Prisma Schema
 // DB: PostgreSQL 16 + TimescaleDB
-// 버전: v1.2  (캐릭터 커스터마이징 시스템 추가)
+// 버전: v1.3  (커뮤니티 도메인 추가 — 친구/연습방, 캐릭터 제외)
 // ──────────────────────────────────────────────────────────────
 
 generator client {
@@ -48,17 +48,21 @@ enum SubscriptionPlan {
   PREMIUM
 }
 
-enum CharacterType {
-  HUMAN   // 사람형
-  ANIMAL  // 동물형
-  ROBOT   // 로봇형
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
 }
 
-enum ItemType {
-  HAIR        // 헤어 스타일
-  OUTFIT      // 의상
-  ACCESSORY   // 악세서리
-  BACKGROUND  // 배경 테마
+enum RoomMemberRole {
+  HOST
+  MEMBER
+}
+
+enum RoomJoinRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -105,25 +109,34 @@ model User {
   memos                Memo[]
   bpmRecords           BpmRecord[]
   reports              Report[]
-  teachingRelations    LessonRelation[] @relation("TeacherRelation")
-  studentRelations     LessonRelation[] @relation("StudentRelation")
-  character            UserCharacter?
-  unlockedItems        UserUnlockedItem[]
+  teachingRelations    LessonRelation[]      @relation("TeacherRelation")
+  studentRelations     LessonRelation[]      @relation("StudentRelation")
   auditLogs            AuditLog[]
+  // 커뮤니티
+  sentFriendRequests     FriendRequest[]     @relation("SentRequests")
+  receivedFriendRequests FriendRequest[]     @relation("ReceivedRequests")
+  friends                Friend[]            @relation("UserFriends")
+  friendOf               Friend[]            @relation("FriendOf")
+  ownedRooms             Room[]
+  roomMembers            RoomMember[]
+  roomJoinRequests       RoomJoinRequest[]
 
   @@map("users")
 }
 
 model UserProfile {
-  id                 String   @id @default(uuid())
-  userId             String   @unique
-  nickname           String   @db.VarChar(50)
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  nickname           String    @db.VarChar(50)
+  handle             String    @unique @db.VarChar(30)  // @handle — 고유 식별자, 월 1회 변경
+  nicknameChangedAt  DateTime? @db.Timestamptz          // 닉네임 마지막 변경 시각 (월 1회 제한)
+  bio                String?   @db.VarChar(150)          // 자기소개
   profileImageUrl    String?
   mainInstrumentId   String?
-  dailyGoalMinutes   Int      @default(30)
-  weeklyGoalMinutes  Int      @default(150)
-  createdAt          DateTime @default(now()) @db.Timestamptz
-  updatedAt          DateTime @updatedAt @db.Timestamptz
+  dailyGoalMinutes   Int       @default(30)
+  weeklyGoalMinutes  Int       @default(150)
+  createdAt          DateTime  @default(now()) @db.Timestamptz
+  updatedAt          DateTime  @updatedAt @db.Timestamptz
 
   // Relations
   user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -168,73 +181,96 @@ model LessonRelation {
 }
 
 // ──────────────────────────────────────────────────────────────
-// 캐릭터 도메인
+// 커뮤니티 도메인 — 친구
 // ──────────────────────────────────────────────────────────────
 
-model UserCharacter {
-  id                  String        @id @default(uuid())
-  userId              String        @unique
-  characterType       CharacterType @default(HUMAN)
-  level               Int           @default(1)
-  exp                 Int           @default(0)
-
-  // 장착 중인 아이템 슬롯 (character_items.id — UUID)
-  equippedHair        String?                        // character_items.id
-  equippedOutfit      String?                        // character_items.id
-  equippedAccessory   String?                        // character_items.id
-  equippedBackground  String?                        // character_items.id
-  equippedInstrumentId String?                       // instruments.id
-
-  // 기본 외형
-  skinTone            String        @default("default") @db.VarChar(20)
-  hairColor           String        @default("default") @db.VarChar(20)
-
-  // 확장 커스터마이징
-  extras              Json          @default("{}")
-
-  createdAt           DateTime      @default(now()) @db.Timestamptz
-  updatedAt           DateTime      @updatedAt @db.Timestamptz
+model FriendRequest {
+  id         String              @id @default(uuid())
+  fromUserId String
+  toUserId   String
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now()) @db.Timestamptz
+  updatedAt  DateTime            @updatedAt @db.Timestamptz
 
   // Relations
-  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  equippedInstrument Instrument? @relation(fields: [equippedInstrumentId], references: [id])
+  fromUser User @relation("SentRequests",     fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("ReceivedRequests", fields: [toUserId],   references: [id], onDelete: Cascade)
 
-  @@map("user_characters")
+  @@unique([fromUserId, toUserId])
+  @@index([toUserId, status])
+  @@map("friend_requests")
 }
 
-model CharacterItem {
-  id               String   @id @default(uuid())
-  code             String   @unique @db.VarChar(50)  // 내부 식별 코드: 'outfit_rock_001'
-  itemType         ItemType
-  name             String   @db.VarChar(100)
-  description      String?
-  thumbnailUrl     String?
-  unlockCondition  String?  @db.VarChar(200)       // UI 표시용 텍스트
-  unlockStreak     Int?                             // 연속 연습 N일 조건
-  unlockLevel      Int?                             // 캐릭터 레벨 N 달성 조건
-  isDefault        Boolean  @default(false)
-  isPremium        Boolean  @default(false)         // PREMIUM 구독자 전용
-  sortOrder        Int      @default(0)
-  createdAt        DateTime @default(now()) @db.Timestamptz
+/// 양방향 친구 관계 — 수락 시 (A→B), (B→A) 두 행 삽입
+model Friend {
+  userId    String
+  friendId  String
+  createdAt DateTime @default(now()) @db.Timestamptz
 
   // Relations
-  unlockedBy UserUnlockedItem[]
+  user   User @relation("UserFriends", fields: [userId],   references: [id], onDelete: Cascade)
+  friend User @relation("FriendOf",    fields: [friendId], references: [id], onDelete: Cascade)
 
-  @@map("character_items")
-}
-
-model UserUnlockedItem {
-  userId     String
-  itemId     String                                 // character_items.id — UUID
-  unlockedAt DateTime @default(now()) @db.Timestamptz
-
-  // Relations
-  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  item CharacterItem @relation(fields: [itemId], references: [id])
-
-  @@id([userId, itemId])
+  @@id([userId, friendId])
   @@index([userId])
-  @@map("user_unlocked_items")
+  @@map("friends")
+}
+
+// ──────────────────────────────────────────────────────────────
+// 커뮤니티 도메인 — 연습 방
+// ──────────────────────────────────────────────────────────────
+
+model Room {
+  id          String   @id @default(uuid())
+  hostId      String
+  name        String   @db.VarChar(20)
+  description String?  @db.VarChar(100)
+  inviteCode  String   @unique @db.VarChar(6)   // 대문자+숫자 6자리
+  maxMembers  Int      @default(20)
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  host         User              @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  members      RoomMember[]
+  joinRequests RoomJoinRequest[]
+
+  @@index([hostId])
+  @@map("rooms")
+}
+
+/// 방 멤버 (방장 포함)
+model RoomMember {
+  roomId   String
+  userId   String
+  role     RoomMemberRole @default(MEMBER)
+  joinedAt DateTime       @default(now()) @db.Timestamptz
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
+  @@index([userId])
+  @@map("room_members")
+}
+
+/// 방 입장 요청 — 방장 수락 후 room_members에 추가됨
+model RoomJoinRequest {
+  id        String               @id @default(uuid())
+  roomId    String
+  userId    String
+  status    RoomJoinRequestStatus @default(PENDING)
+  createdAt DateTime             @default(now()) @db.Timestamptz
+  updatedAt DateTime             @updatedAt @db.Timestamptz
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId, status])
+  @@map("room_join_requests")
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -250,7 +286,6 @@ model Instrument {
   // Relations
   practiceSessions  PracticeSession[]
   userProfiles      UserProfile[]
-  userCharacters    UserCharacter[]
 
   @@map("instruments")
 }

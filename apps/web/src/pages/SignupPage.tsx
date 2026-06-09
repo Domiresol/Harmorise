@@ -35,7 +35,7 @@ export function SignupPage() {
         body:   { email, password, phone: phone.phone, phoneToken: phone.phoneToken },
       });
       await login(res.accessToken);
-      navigate('/home');
+      navigate('/onboarding', { replace: true });
     } catch (e: unknown) {
       setSubmitError(e instanceof Error ? e.message : '회원가입에 실패했습니다.');
     } finally {

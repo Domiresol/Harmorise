@@ -23,4 +23,10 @@ export class UsersController {
   updateMe(@Req() req: AuthRequest, @Body() dto: UpdateProfileDto) {
     return this.usersService.updateMe(req.user.id, dto);
   }
+
+  /** GET /api/users/instruments — 악기 마스터 목록 */
+  @Get('instruments')
+  getInstruments() {
+    return this.usersService.getInstruments();
+  }
 }

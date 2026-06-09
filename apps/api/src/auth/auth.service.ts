@@ -141,21 +141,22 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
+    // handle 자동 생성: 이메일 로컬파트 영문/숫자만 + 중복 시 랜덤 suffix
+    const baseHandle  = dto.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    const handle      = await this.generateUniqueHandle(baseHandle || 'user');
+
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
         phone: dto.phone,
         profile: {
-          create: { nickname: dto.email.split('@')[0] },
+          create: { nickname: dto.email.split('@')[0], handle },
         },
         subscription: {
           create: { plan: 'FREE' },
         },
         streak: {
-          create: {},
-        },
-        character: {
           create: {},
         },
       },
@@ -250,6 +251,18 @@ export class AuthService {
   // ─────────────────────────────────────────────────────────────
   // 내부 헬퍼
   // ─────────────────────────────────────────────────────────────
+
+  private async generateUniqueHandle(base: string): Promise<string> {
+    // 최대 30자 제한
+    const trimmed = base.slice(0, 24);
+    let candidate = trimmed;
+    while (true) {
+      const exists = await this.prisma.userProfile.findUnique({ where: { handle: candidate } });
+      if (!exists) return candidate;
+      // 중복이면 4자리 랜덤 숫자 suffix
+      candidate = `${trimmed}${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+  }
 
   private issueAccessToken(id: string, email: string, role: string): string {
     return this.jwt.sign({ sub: id, email, role });

@@ -27,7 +27,10 @@ export function LoginPage() {
       });
       await login(res.accessToken);
       // ADMIN이면 관리자 대시보드로, 그 외엔 이전 페이지 또는 홈으로
-      navigate(res.user?.role === 'ADMIN' ? '/admin' : from, { replace: true });
+      // 이전 페이지가 없거나 랜딩/로그인/회원가입 페이지면 홈으로
+      const PUBLIC_PATHS = ['/', '/login', '/signup', '/find-id', '/reset-password', '/onboarding'];
+      const destination = PUBLIC_PATHS.includes(from) ? '/home' : from;
+      navigate(res.user?.role === 'ADMIN' ? '/admin' : destination, { replace: true });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '로그인에 실패했습니다.');
     } finally {

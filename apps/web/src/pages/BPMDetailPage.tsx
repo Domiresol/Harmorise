@@ -112,26 +112,35 @@ function BpmChart({ data, targetBpm }: {
 // ── 연습 시간 미니 바 차트 ────────────────────────────────────
 function DurationBarChart({ sessions }: { sessions: PracticeSession[] }) {
   if (sessions.length === 0) return null;
-  // 최근 12개만 표시
-  const recent   = [...sessions].reverse().slice(0, 12);
-  const maxMin   = Math.max(...recent.map(s => s.durationMinutes));
+  // 날짜 오름차순 (왼쪽=오래된것, 오른쪽=최신), 전체 표시
+  const ordered   = [...sessions].reverse();
+  const maxMin    = Math.max(...ordered.map(s => s.durationMinutes));
+  const BAR_W     = 14; // px — 고정 폭
+  const GAP       = 3;  // px
+  const MAX_BAR_H = 48; // px
 
   return (
-    <div className="flex items-end gap-1 h-16">
-      {recent.map((s, i) => {
-        const pct = maxMin > 0 ? (s.durationMinutes / maxMin) * 100 : 0;
-        return (
-          <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+    <div className="overflow-x-auto">
+      <div
+        className="flex items-end justify-center gap-[3px]"
+        style={{ height: 64, minWidth: ordered.length * (BAR_W + GAP) }}
+      >
+        {ordered.map((s, i) => {
+          const barH = maxMin > 0 ? Math.max((s.durationMinutes / maxMin) * MAX_BAR_H, 2) : 2;
+          return (
             <div
-              className="w-full rounded-sm bg-primary transition-all"
-              style={{ height: `${Math.max(pct, 4)}%` }}
-            />
-            <span className="text-[8px] text-slate-300 leading-none">
-              {fmtDate(s.practicedAt)}
-            </span>
-          </div>
-        );
-      })}
+              key={i}
+              className="flex-shrink-0 flex flex-col items-center justify-end gap-0.5"
+              style={{ width: BAR_W }}
+            >
+              <div className="w-full rounded-sm bg-primary" style={{ height: barH }} />
+              <span className="text-[8px] text-slate-300 leading-none">
+                {fmtDate(s.practicedAt)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -424,7 +433,7 @@ export function BPMDetailPage() {
                   <Card>
                     <p className="text-sm font-bold text-slate-800 mb-3">연습 시간 추이</p>
                     <DurationBarChart sessions={sessData.sessions} />
-                    <p className="text-xs text-slate-400 mt-2 text-right">최근 {Math.min(sessData.sessions.length, 12)}회</p>
+                    <p className="text-xs text-slate-400 mt-2 text-right">총 {sessData.sessions.length}회</p>
                   </Card>
                 )}
 

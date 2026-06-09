@@ -31,9 +31,12 @@ async function bootstrap() {
   );
 
   // ── CORS ─────────────────────────────────────────────────────
-  const allowedOrigins = process.env['NODE_ENV'] === 'production'
-    ? [process.env['FRONTEND_URL'] ?? 'https://harmorise.app']
-    : ['http://localhost:4200'];
+  // NODE_ENV 대신 FRONTEND_URL 환경변수로 판단
+  // 로컬 개발: .env에 FRONTEND_URL 미설정 → localhost:4200 허용
+  // 운영: .env에 FRONTEND_URL=https://harmorise.app 설정
+  const allowedOrigins = process.env['FRONTEND_URL']
+    ? [process.env['FRONTEND_URL']]
+    : ['http://localhost:4200', 'http://localhost:4201'];
 
   app.enableCors({
     origin: allowedOrigins,
