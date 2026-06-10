@@ -5,7 +5,7 @@ import { StreakBadge } from '../components/ui/Badge';
 import { apiFetch } from '../lib/api';
 
 // ── 타입 ─────────────────────────────────────────────────────
-type DayLevel = 'perfect' | 'great' | 'good' | 'none';
+type DayLevel = 'perfect' | 'great' | 'good' | 'ok' | 'none';
 
 interface DayStat {
   totalMinutes: number;
@@ -24,12 +24,14 @@ interface MonthlyStatsResponse {
   month: number;
   dailyGoalMinutes: number;
   days: Record<string, DayStat>;
+  weeklyGoalDays: number;
   summary: {
     practicedDays: number;
     totalMinutes: number;
     perfectDays: number;
     greatDays: number;
     goodDays: number;
+    okDays: number;
   };
   streak: {
     currentStreak: number;
@@ -42,10 +44,11 @@ const LEVEL_CONFIG: Record<
   DayLevel,
   { bg: string; label: string; emoji: string }
 > = {
-  perfect: { bg: 'bg-primary', label: 'Perfect', emoji: '🔥' },
-  great: { bg: 'bg-sky-400', label: 'Great', emoji: '⭐' },
-  good: { bg: 'bg-sky-200', label: 'Good', emoji: '✅' },
-  none: { bg: 'bg-slate-100', label: '', emoji: '' },
+  perfect: { bg: 'bg-primary',     label: 'Perfect', emoji: '🔥' },
+  great:   { bg: 'bg-sky-400',     label: 'Great',   emoji: '⭐' },
+  good:    { bg: 'bg-sky-200',     label: 'Good',    emoji: '✅' },
+  ok:      { bg: 'bg-amber-300',   label: 'OK',      emoji: '👍' },
+  none:    { bg: 'bg-slate-100',   label: '',        emoji: '' },
 };
 
 // ── 유틸 ──────────────────────────────────────────────────────
@@ -115,10 +118,11 @@ export function CalendarPage() {
     setSelected(null);
   };
 
-  const days = stats?.days ?? {};
-  const summary = stats?.summary;
-  const streak = stats?.streak;
-  const dailyGoalMinutes = stats?.dailyGoalMinutes ?? 30;
+  const days           = stats?.days ?? {};
+  const summary        = stats?.summary;
+  const streak         = stats?.streak;
+  const weeklyGoalDays = stats?.weeklyGoalDays ?? 5;
+
 
   const selectedDay = selected ? days[selected] : null;
   const selectedSessions = selectedDay?.sessions ?? [];
@@ -181,18 +185,18 @@ export function CalendarPage() {
         </div>
 
         {/* 요일 헤더 */}
-        <div className="grid grid-cols-7 mb-1">
-          {DAYS_KR.map((d, i) => (
-            <p
-              key={d}
-              className={`text-center text-xs font-medium ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}`}
-            >
-              {d}
-            </p>
-          ))}
+        <div className="flex items-center mb-1">
+          <div className="flex-1 grid grid-cols-7">
+            {DAYS_KR.map((d, i) => (
+              <p key={d} className={`text-center text-xs font-medium ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}`}>
+                {d}
+              </p>
+            ))}
+          </div>
+          <div className="w-8" />
         </div>
 
-        {/* 날짜 그리드 */}
+        {/* 날짜 그리드 — 주(week) 단위로 분리, 오른쪽에 주간 뱃지 */}
         {loading ? (
           <div className="h-40 flex items-center justify-center">
             <p className="text-sm text-slate-400">불러오는 중…</p>
@@ -202,43 +206,61 @@ export function CalendarPage() {
             <p className="text-sm text-red-400">{error}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-7 gap-y-1">
-            {cells.map((day, i) => {
-              if (!day) return <div key={i} />;
-              const key = formatKey(year, month, day);
-              const level = (days[key]?.level ?? 'none') as DayLevel;
-              const isToday =
-                key ===
-                formatKey(
-                  today.getFullYear(),
-                  today.getMonth(),
-                  today.getDate(),
-                );
-              const isSel = key === selected;
+          <div className="flex flex-col gap-y-1">
+            {Array.from({ length: Math.ceil(cells.length / 7) }, (_, wi) => {
+              const week = cells.slice(wi * 7, wi * 7 + 7);
+              // 이 주에 연습한 날 수 (null이 아닌 날 중 level이 none이 아닌 것)
+              const practicedInWeek = week.filter(day => {
+                if (!day) return false;
+                const k = formatKey(year, month, day);
+                return (days[k]?.level ?? 'none') !== 'none';
+              }).length;
+              const hasAnyDay   = week.some(d => d !== null);
+              const goalMet     = practicedInWeek >= weeklyGoalDays;
+              const todayKey    = formatKey(today.getFullYear(), today.getMonth(), today.getDate());
 
               return (
-                <button
-                  key={key}
-                  onClick={() => setSelected(isSel ? null : key)}
-                  className="flex flex-col items-center gap-0.5 py-0.5"
-                >
-                  <span
-                    className={[
-                      'text-xs w-7 h-7 flex items-center justify-center rounded-full font-medium transition-all',
-                      isSel
-                        ? 'bg-primary text-white'
-                        : isToday
-                          ? 'ring-2 ring-primary text-primary'
-                          : 'text-slate-700',
-                    ].join(' ')}
-                  >
-                    {day}
-                  </span>
-                  {/* 달성 레벨 도트 */}
-                  <span
-                    className={`w-4 h-1.5 rounded-full ${LEVEL_CONFIG[level].bg}`}
-                  />
-                </button>
+                <div key={wi} className="flex items-center gap-1">
+                  <div className="flex-1 grid grid-cols-7">
+                    {week.map((day, i) => {
+                      if (!day) return <div key={i} />;
+                      const key   = formatKey(year, month, day);
+                      const level = (days[key]?.level ?? 'none') as DayLevel;
+                      const isToday = key === todayKey;
+                      const isSel   = key === selected;
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => setSelected(isSel ? null : key)}
+                          className="flex flex-col items-center gap-0.5 py-0.5"
+                        >
+                          <span className={[
+                            'text-xs w-7 h-7 flex items-center justify-center rounded-full font-medium transition-all',
+                            isSel ? 'bg-primary text-white'
+                              : isToday ? 'ring-2 ring-primary text-primary'
+                              : 'text-slate-700',
+                          ].join(' ')}>
+                            {day}
+                          </span>
+                          <span className={`w-4 h-1.5 rounded-full ${LEVEL_CONFIG[level].bg}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* 주간 달성 뱃지 */}
+                  <div className="w-8 flex flex-col items-center justify-center">
+                    {hasAnyDay && practicedInWeek > 0 && (
+                      goalMet ? (
+                        <span className="text-base leading-none">🏆</span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 leading-tight text-center">
+                          {practicedInWeek}<span className="text-slate-300">/{weeklyGoalDays}</span>
+                        </span>
+                      )
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -248,7 +270,7 @@ export function CalendarPage() {
 
         {/* 범례 */}
         <div className="flex items-center gap-3 justify-center flex-wrap">
-          {(['perfect', 'great', 'good', 'none'] as DayLevel[]).map((l) => (
+          {(['perfect', 'great', 'good', 'ok', 'none'] as DayLevel[]).map((l) => (
             <div key={l} className="flex items-center gap-1">
               <span className={`w-3 h-3 rounded-full ${LEVEL_CONFIG[l].bg}`} />
               <span className="text-xs text-slate-500">
@@ -258,9 +280,9 @@ export function CalendarPage() {
           ))}
         </div>
 
-        {/* 목표 안내 */}
+        {/* 목표 기준 안내 */}
         <p className="text-xs text-slate-400 text-center mt-2">
-          Perfect = 일일 목표 {dailyGoalMinutes}분 달성
+          🔥 100% · ⭐ 80%+ · ✅ 60%+ · 👍 60% 미만
         </p>
       </Card>
 
@@ -345,29 +367,25 @@ export function CalendarPage() {
 
             {/* 달성 레벨 분포 */}
             <div className="flex gap-2 justify-center">
-              {(['perfect', 'great', 'good'] as DayLevel[]).map((l) => (
-                <div
-                  key={l}
-                  className="flex-1 rounded-item p-2 text-center bg-slate-50"
-                >
-                  <p className="text-lg font-bold text-slate-800">
-                    {l === 'perfect'
-                      ? (summary?.perfectDays ?? 0)
-                      : l === 'great'
-                        ? (summary?.greatDays ?? 0)
-                        : (summary?.goodDays ?? 0)}
-                    일
-                  </p>
-                  <div className="flex items-center justify-center gap-1 mt-0.5">
-                    <span
-                      className={`w-2 h-2 rounded-full ${LEVEL_CONFIG[l].bg}`}
-                    />
-                    <span className="text-xs text-slate-500">
-                      {LEVEL_CONFIG[l].label}
-                    </span>
+              {([ 'perfect', 'great', 'good', 'ok'] as DayLevel[]).map((l) => {
+                const count =
+                  l === 'perfect' ? (summary?.perfectDays ?? 0) :
+                  l === 'great'   ? (summary?.greatDays   ?? 0) :
+                  l === 'good'    ? (summary?.goodDays    ?? 0) :
+                                    (summary?.okDays      ?? 0);
+                return (
+                  <div
+                    key={l}
+                    className="flex-1 rounded-item p-2 text-center bg-slate-50"
+                  >
+                    <p className="text-lg font-bold text-slate-800">{count}일</p>
+                    <div className="flex items-center justify-center gap-1 mt-0.5">
+                      <span className={`w-2 h-2 rounded-full ${LEVEL_CONFIG[l].bg}`} />
+                      <span className="text-xs text-slate-500">{LEVEL_CONFIG[l].label}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}

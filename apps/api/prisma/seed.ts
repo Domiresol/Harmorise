@@ -20,6 +20,7 @@ async function main() {
     { name: '플루트',         category: '관악기' },
     { name: '색소폰',         category: '관악기' },
     { name: '트럼펫',         category: '관악기' },
+    { name: '키보드',         category: '건반' },
     { name: '기타(직접입력)', category: null },
   ];
 

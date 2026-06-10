@@ -298,12 +298,15 @@ export class PracticeService {
     const startDate = new Date(Date.UTC(year, month - 1, 1));
     const endDate   = new Date(Date.UTC(year, month, 0));     // 해당 월 마지막 날
 
-    // 일일 목표 시간 조회
+    // 목표 시간 조회
     const profile = await this.prisma.userProfile.findUnique({
       where: { userId },
-      select: { dailyGoalMinutes: true },
+      select: { dailyGoalMinutes: true, weeklyGoalMinutes: true },
     });
-    const dailyGoalMinutes = profile?.dailyGoalMinutes ?? 30;
+    const dailyGoalMinutes = profile?.dailyGoalMinutes  ?? 30;
+    const weeklyGoalDays   = Math.max(1, Math.min(7,
+      Math.round((profile?.weeklyGoalMinutes ?? 150) / dailyGoalMinutes),
+    ));
 
     // 해당 월 모든 세션 조회
     const sessions = await this.prisma.practiceSession.findMany({
@@ -319,7 +322,7 @@ export class PracticeService {
     });
 
     // 날짜별 그룹핑
-    type DayLevel = 'perfect' | 'great' | 'good' | 'none';
+    type DayLevel = 'perfect' | 'great' | 'good' | 'ok' | 'none';
     type DayStat = {
       totalMinutes: number;
       level: DayLevel;
@@ -340,12 +343,13 @@ export class PracticeService {
       });
     }
 
-    // 레벨 계산
+    // 레벨 계산 — perfect(100%) / great(80%+) / good(60%+) / ok(>0%) / none
     for (const day of Object.values(days)) {
       const { totalMinutes: m } = day;
-      if      (m >= dailyGoalMinutes)            day.level = 'perfect';
-      else if (m >= dailyGoalMinutes * 0.7)      day.level = 'great';
-      else if (m > 0)                            day.level = 'good';
+      if      (m >= dailyGoalMinutes)             day.level = 'perfect';
+      else if (m >= dailyGoalMinutes * 0.8)       day.level = 'great';
+      else if (m >= dailyGoalMinutes * 0.6)       day.level = 'good';
+      else if (m > 0)                             day.level = 'ok';
     }
 
     // 요약
@@ -356,6 +360,7 @@ export class PracticeService {
       perfectDays:   dayList.filter(d => d.level === 'perfect').length,
       greatDays:     dayList.filter(d => d.level === 'great').length,
       goodDays:      dayList.filter(d => d.level === 'good').length,
+      okDays:        dayList.filter(d => d.level === 'ok').length,
     };
 
     // 스트릭 — 실제 세션 데이터 기반으로 계산
@@ -365,6 +370,7 @@ export class PracticeService {
       year,
       month,
       dailyGoalMinutes,
+      weeklyGoalDays,
       days,
       summary,
       streak,
@@ -392,6 +398,15 @@ export class PracticeService {
     const diffToMon    = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     const weekStartUtc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + diffToMon));
 
+    // 유저 프로필 (주간 목표 일수 계산용)
+    const profile = await this.prisma.userProfile.findUnique({
+      where:  { userId },
+      select: { dailyGoalMinutes: true, weeklyGoalMinutes: true },
+    });
+    const dailyGoal  = profile?.dailyGoalMinutes  ?? 30;
+    const weeklyGoal = profile?.weeklyGoalMinutes ?? 150;
+    const weekGoalDays = Math.max(1, Math.min(7, Math.round(weeklyGoal / dailyGoal)));
+
     const [todayAgg, weekSessions, recentSessions, streak] = await Promise.all([
       // 오늘 총 연습 시간
       this.prisma.practiceSession.aggregate({
@@ -399,10 +414,10 @@ export class PracticeService {
         where: { userId, practicedAt: todayUtc },
       }),
 
-      // 이번 주 연습한 날짜 목록 (중복 제거용)
+      // 이번 주 연습한 날짜 목록 (중복 제거)
       this.prisma.practiceSession.findMany({
-        where:   { userId, practicedAt: { gte: weekStartUtc } },
-        select:  { practicedAt: true },
+        where:    { userId, practicedAt: { gte: weekStartUtc } },
+        select:   { practicedAt: true },
         distinct: ['practicedAt'],
       }),
 
@@ -418,15 +433,17 @@ export class PracticeService {
         },
       }),
 
-      // 스트릭 — 실제 세션 데이터 기반으로 계산
+      // 스트릭
       this.computeStreak(userId),
     ]);
 
     return {
-      todayMinutes:      todayAgg._sum.durationMinutes ?? 0,
-      weekPracticedDays: weekSessions.length,
+      todayMinutes:        todayAgg._sum.durationMinutes ?? 0,
+      weekPracticedDays:   weekSessions.length,
+      weekGoalDays,
+      weekPracticedDates:  weekSessions.map(s => this.formatDate(s.practicedAt)),
       streak,
-      recentSessions:    recentSessions.map(s => this.formatSession(s)),
+      recentSessions:      recentSessions.map(s => this.formatSession(s)),
     };
   }
 

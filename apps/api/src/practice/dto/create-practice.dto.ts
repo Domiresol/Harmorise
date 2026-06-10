@@ -14,13 +14,13 @@ import { PracticeType } from '@prisma/client';
 export class CreatePracticeDto {
   /** 연습 날짜 (YYYY-MM-DD) */
   @IsDateString()
-  practicedAt: string;
+  practicedAt!: string;
 
   /** 연습 시간 (분, 5~720) */
   @IsInt()
   @Min(5)
   @Max(720)
-  durationMinutes: number;
+  durationMinutes!: number;
 
   /** 악기 이름 (문자열 — 없으면 find-or-create) */
   @IsOptional()

@@ -29,10 +29,15 @@ const tabs: TabItem[] = [
     ),
   },
   {
-    /* FAB 자리 — 빈 탭 */
-    label: '',
-    path: '',
-    icon: () => <span className="w-14" />,
+    label: '캘린더',
+    path: '/calendar',
+    icon: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#0EA5E9' : '#94A3B8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+    ),
   },
   {
     label: '커뮤니티',
@@ -68,11 +73,7 @@ export function BottomTabBar() {
   return (
     <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[767px] z-50">
       <div className="bg-white border-t border-slate-200 flex items-center justify-around h-[60px] safe-bottom px-2">
-        {tabs.map((tab, i) => {
-          if (!tab.path) {
-            /* FAB 공간 */
-            return <span key={i} className="w-14 flex-shrink-0" />;
-          }
+        {tabs.map((tab) => {
           const active = isActive(tab.path);
           return (
             <button

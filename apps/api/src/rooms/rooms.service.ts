@@ -66,10 +66,13 @@ export class RoomsService {
     });
 
     return memberships.map(m => ({
-      ...m.room,
+      id:          m.room.id,
+      name:        m.room.name,
+      description: m.room.description,
+      inviteCode:  m.role === 'HOST' ? m.room.inviteCode : null,
       memberCount: m.room._count.members,
-      myRole: m.role,
-      joinedAt: m.joinedAt,
+      myRole:      m.role,
+      joinedAt:    m.joinedAt,
     }));
   }
 
@@ -95,11 +98,15 @@ export class RoomsService {
     if (!membership) throw new ForbiddenException('방 멤버만 조회할 수 있습니다.');
 
     return {
-      ...room,
+      id:          room.id,
+      name:        room.name,
+      description: room.description,
+      hostId:      room.hostId,
+      createdAt:   room.createdAt,
       memberCount: room._count.members,
-      myRole: membership.role,
+      myRole:      membership.role,
       // 방장이 아니면 초대코드 숨김
-      inviteCode: membership.role === 'HOST' ? room.inviteCode : null,
+      inviteCode:  membership.role === 'HOST' ? room.inviteCode : null,
     };
   }
 
@@ -147,7 +154,7 @@ export class RoomsService {
   async getJoinRequests(roomId: string, userId: string) {
     await this.ensureHost(roomId, userId);
 
-    return this.prisma.roomJoinRequest.findMany({
+    const rows = await this.prisma.roomJoinRequest.findMany({
       where: { roomId, status: 'PENDING' },
       select: {
         id: true,
@@ -162,6 +169,18 @@ export class RoomsService {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    // 프론트엔드 JoinRequest 인터페이스에 맞게 flatten
+    return rows.map(r => ({
+      requestId:   r.id,
+      requestedAt: r.createdAt,
+      user: {
+        userId:         r.user.profile?.userId        ?? '',
+        nickname:       r.user.profile?.nickname      ?? '',
+        handle:         r.user.profile?.handle        ?? '',
+        profileImageUrl: r.user.profile?.profileImageUrl ?? null,
+      },
+    }));
   }
 
   // ── 입장 요청 수락 / 거절 (방장 전용) ───────────────────────
@@ -211,6 +230,7 @@ export class RoomsService {
         createdAt: true,
         user: {
           select: {
+            id: true,
             profile: { select: { nickname: true, handle: true, profileImageUrl: true } },
           },
         },
@@ -227,7 +247,7 @@ export class RoomsService {
     const items = sessions.slice(0, limit).map(s => ({
       id: s.id,
       user: {
-        userId: s.user.profile?.userId,
+        userId: s.user.id,
         nickname: s.user.profile?.nickname ?? '',
         handle: s.user.profile?.handle ?? '',
         profileImageUrl: s.user.profile?.profileImageUrl ?? null,
@@ -254,8 +274,6 @@ export class RoomsService {
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - now.getDay());
     weekStart.setHours(0, 0, 0, 0);
-
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const members = await this.prisma.roomMember.findMany({
       where: { roomId },

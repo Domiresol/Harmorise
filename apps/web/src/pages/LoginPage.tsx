@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
 export function LoginPage() {
   const navigate  = useNavigate();
-  const location  = useLocation();
   const { login } = useAuth();
 
   const [email,    setEmail]    = useState('');
@@ -14,7 +13,7 @@ export function LoginPage() {
   const [loading,  setLoading]  = useState(false);
 
   // 이전 페이지에서 리다이렉트됐다면 그리로 돌아가기 (단, admin 분기 우선)
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/home';
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,9 +27,7 @@ export function LoginPage() {
       await login(res.accessToken);
       // ADMIN이면 관리자 대시보드로, 그 외엔 이전 페이지 또는 홈으로
       // 이전 페이지가 없거나 랜딩/로그인/회원가입 페이지면 홈으로
-      const PUBLIC_PATHS = ['/', '/login', '/signup', '/find-id', '/reset-password', '/onboarding'];
-      const destination = PUBLIC_PATHS.includes(from) ? '/home' : from;
-      navigate(res.user?.role === 'ADMIN' ? '/admin' : destination, { replace: true });
+      navigate(res.user?.role === 'ADMIN' ? '/admin' : '/home', { replace: true });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '로그인에 실패했습니다.');
     } finally {

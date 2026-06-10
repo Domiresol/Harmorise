@@ -11,6 +11,8 @@ import { apiFetch } from '../lib/api';
 interface SummaryResponse {
   todayMinutes: number;
   weekPracticedDays: number;
+  weekGoalDays: number;
+  weekPracticedDates: string[];
   streak: { currentStreak: number; longestStreak: number };
   recentSessions: {
     id: string;
@@ -75,11 +77,25 @@ export function HomePage() {
   const level    = user?.character?.level   ?? 1;
   const goalMin  = user?.profile?.dailyGoalMinutes ?? 30;
 
-  const todayMin  = summary?.todayMinutes       ?? 0;
-  const weekDays  = summary?.weekPracticedDays  ?? 0;
-  const streak    = summary?.streak?.currentStreak ?? 0;
-  const goalPct   = Math.min(Math.round((todayMin / goalMin) * 100), 100);
-  const recentSessions = summary?.recentSessions ?? [];
+  const todayMin          = summary?.todayMinutes        ?? 0;
+  const weekDays          = summary?.weekPracticedDays   ?? 0;
+  const weekGoalDays      = summary?.weekGoalDays        ?? 5;
+  const weekPracticedDates= new Set(summary?.weekPracticedDates ?? []);
+  const streak            = summary?.streak?.currentStreak ?? 0;
+  const goalPct           = Math.min(Math.round((todayMin / goalMin) * 100), 100);
+  const recentSessions    = summary?.recentSessions ?? [];
+
+  // 이번 주 월~일 날짜 배열 계산
+  const todayDate   = new Date();
+  const dow         = todayDate.getDay(); // 0=일
+  const diffToMon   = dow === 0 ? -6 : 1 - dow;
+  const weekDates   = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(todayDate);
+    d.setDate(todayDate.getDate() + diffToMon + i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const DAY_LABELS  = ['월', '화', '수', '목', '금', '토', '일'];
+  const weekGoalMet = weekDays >= weekGoalDays;
 
   return (
     <PageLayout hasTabBar title={undefined} showBack={false}>
@@ -119,17 +135,50 @@ export function HomePage() {
           {todayMin}분 / 목표 {goalMin}분
         </p>
 
-        {/* 주간 + 스트리크 */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* 스트리크 + 이번 주 */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
           <div className="bg-white rounded-item p-3 text-center">
             <p className="text-2xl font-bold text-primary">{streak}</p>
             <p className="text-xs text-slate-400 mt-0.5">연속 연습 🔥</p>
           </div>
           <div className="bg-white rounded-item p-3 text-center">
             <p className="text-2xl font-bold text-slate-800">
-              {weekDays}<span className="text-sm font-normal text-slate-400">/7일</span>
+              {weekDays}
+              <span className="text-sm font-normal text-slate-400">/{weekGoalDays}일</span>
             </p>
-            <p className="text-xs text-slate-400 mt-0.5">이번 주</p>
+            <p className="text-xs text-slate-400 mt-0.5">이번 주 목표</p>
+          </div>
+        </div>
+
+        {/* 주간 미션 — 요일 도트 */}
+        <div className="bg-white rounded-item px-3 py-2.5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-medium text-slate-500">이번 주 미션</span>
+            {weekGoalMet
+              ? <span className="text-xs font-bold text-primary">🏆 달성!</span>
+              : <span className="text-xs text-slate-400">{weekDays}/{weekGoalDays}일</span>
+            }
+          </div>
+          <div className="flex gap-1">
+            {weekDates.map((date, i) => {
+              const practiced = weekPracticedDates.has(date);
+              const isToday   = date === weekDates[todayDate.getDay() === 0 ? 6 : todayDate.getDay() - 1];
+              return (
+                <div key={date} className="flex-1 flex flex-col items-center gap-0.5">
+                  <span className={`text-[10px] font-medium ${isToday ? 'text-primary' : 'text-slate-400'}`}>
+                    {DAY_LABELS[i]}
+                  </span>
+                  <span className={[
+                    'w-full aspect-square rounded-full max-w-[28px]',
+                    practiced
+                      ? 'bg-primary'
+                      : isToday
+                        ? 'bg-primary-pale ring-1 ring-primary'
+                        : 'bg-slate-100',
+                  ].join(' ')} />
+                </div>
+              );
+            })}
           </div>
         </div>
       </Card>
