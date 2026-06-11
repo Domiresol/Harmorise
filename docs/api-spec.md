@@ -2,7 +2,7 @@
 
 > **Base URL** `http://localhost:3000/api` (개발) / `https://api.harmorise.app/api` (운영 예정)
 > **인증 방식** Bearer Token (JWT)  
-> **최종 업데이트** 2026-06-08 (Songs API, PATCH /practice/:id, PATCH /bpm/songs/:songId 추가)
+> **최종 업데이트** 2026-06-11 (리포트 API, AI 평가 API 명세 추가)
 
 ## 보안 정책
 
@@ -1077,4 +1077,213 @@ DB에 기록되는 내부 이벤트 로그. 별도 API 엔드포인트 없이 �
 #### `DELETE /rooms/:roomId` — 방 삭제 (방장)
 
 **Response 200** `{ "ok": true }`
+
+---
+
+## 리포트 API (`/practice/stats`)
+
+> **현재 상태:** 일부 미구현 (Phase 1 개발 예정). 현재 프론트에서 Mock 데이터 사용 중.
+
+### 리포트 목록
+
+#### `GET /practice/stats/report-list` — 주간/월간 리포트 목록
+
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| `type` | `weekly` \| `monthly` | 리포트 종류 |
+| `limit` | number? | 기본 10 |
+
+**Response 200**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "type": "weekly",
+      "periodStart": "2026-05-18",
+      "periodEnd":   "2026-05-24",
+      "label":       "2026년 5월 4주차",
+      "totalMinutes": 230,
+      "practicedDays": 5,
+      "prevDiffMinutes": 45
+    }
+  ]
+}
+```
+
+---
+
+#### `GET /practice/stats/weekly` — 주간 리포트 상세
+
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| `year` | number | 연도 |
+| `week` | number | ISO 주차 (1-53) |
+
+**Response 200**
+```json
+{
+  "period": "2026년 5월 4주차",
+  "dateRange": "5/18 ~ 5/24",
+  "totalMinutes": 230,
+  "practicedDays": 5,
+  "prevDiffMinutes": 45,
+  "streak": 12,
+  "dayData": [
+    { "day": "월", "date": "2026-05-18", "minutes": 0 },
+    { "day": "화", "date": "2026-05-19", "minutes": 45 }
+  ],
+  "topSongs": [
+    { "songId": "uuid", "title": "Blackbird", "minutes": 90 }
+  ],
+  "bpmGains": [
+    { "songId": "uuid", "title": "Blackbird", "fromBpm": 80, "toBpm": 84 }
+  ]
+}
+```
+
+---
+
+#### `GET /practice/stats/monthly-detail` — 월간 리포트 상세
+
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| `year` | number | 연도 |
+| `month` | number | 월 (1-12) |
+
+**Response 200**
+```json
+{
+  "period": "2026년 5월",
+  "totalMinutes": 760,
+  "practicedDays": 18,
+  "prevDiffMinutes": 120,
+  "bestStreak": 12,
+  "instruments": [
+    { "name": "기타", "minutes": 620, "percentage": 82 }
+  ],
+  "topBpmSong": { "title": "Blackbird", "fromBpm": 68, "toBpm": 84 },
+  "dayHeatmap": [42, 55, 48, 30, 60, 70, 10],
+  "hourHeatmap": [0,0,0,0,0,0,0,5,10,8,5,3,5,2,1,0,0,15,20,18,12,8,5,2]
+}
+```
+
+---
+
+## AI 평가 API (`/recordings`)
+
+> **현재 상태:** DB 설계 완료, 미구현 (Phase 4 개발 예정)
+> S3 Presigned URL 방식으로 파일을 클라이언트가 직접 업로드함
+
+### 녹음 업로드
+
+#### `POST /recordings/presign` — Presigned URL 발급 🔒
+
+녹음 파일을 S3에 직접 업로드하기 위한 URL을 발급한다.
+
+**Request body**
+```json
+{
+  "fileName":      "practice_20260611.webm",
+  "mimeType":      "audio/webm",
+  "fileSizeBytes": 4200000,
+  "durationSeconds": 180,
+  "sessionId":     "uuid"   // 선택 — 연습 세션과 연결
+}
+```
+
+**Response 200**
+```json
+{
+  "recordingId":  "uuid",
+  "uploadUrl":    "https://s3.amazonaws.com/...?X-Amz-Signature=...",
+  "expiresInSec": 300
+}
+```
+
+---
+
+#### `POST /recordings/:id/complete` — 업로드 완료 알림 🔒
+
+클라이언트가 S3 업로드를 마친 후 서버에 알린다. 서버는 BullMQ 분석 잡을 등록한다.
+
+**Response 200**
+```json
+{
+  "recordingId": "uuid",
+  "jobId":       "uuid",
+  "status":      "PENDING"
+}
+```
+
+---
+
+### 분석 결과 조회
+
+#### `GET /recordings/:id/result` — 분석 결과 조회 🔒
+
+분석이 완료되지 않은 경우 `status`로 진행 상태를 반환한다. 프론트에서 폴링하여 완료 시 결과를 표시한다.
+
+**Response 200 — 분석 중**
+```json
+{
+  "recordingId": "uuid",
+  "status": "PROCESSING"
+}
+```
+
+**Response 200 — 완료**
+```json
+{
+  "recordingId": "uuid",
+  "status": "ANALYZED",
+  "result": {
+    "feedback": "전반적으로 박자가 안정적이에요. 중간 부분에서 템포가 약간 빨라지는 경향이 있어요.",
+    "metrics": {
+      "bpmConsistency":     87,
+      "noteDensityPerMin":  42,
+      "continuousPlaySec": 252,
+      "rhythmAccuracy":     91,
+      "pitchAccuracy":    null
+    },
+    "score": null,
+    "createdAt": "2026-06-11T10:30:00Z"
+  }
+}
+```
+
+**Response 200 — 실패**
+```json
+{
+  "recordingId": "uuid",
+  "status": "FAILED",
+  "errorMessage": "분석에 실패했습니다. 다시 시도해주세요."
+}
+```
+
+---
+
+#### `GET /recordings` — 내 녹음 목록 🔒
+
+| 파라미터 | 타입 | 설명 |
+|---------|------|------|
+| `cursor` | string? | 커서 기반 페이지네이션 |
+| `limit`  | number? | 기본 20 |
+
+**Response 200**
+```json
+{
+  "items": [
+    {
+      "id":              "uuid",
+      "sessionId":       "uuid",
+      "durationSeconds": 180,
+      "status":          "ANALYZED",
+      "createdAt":       "2026-06-11T10:00:00Z",
+      "hasFeedback":     true
+    }
+  ],
+  "nextCursor": null
+}
+```
 

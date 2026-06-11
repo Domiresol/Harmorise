@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────────────────────
 // Harmorise — Prisma Schema
 // DB: PostgreSQL 16 + TimescaleDB
-// 버전: v1.3  (커뮤니티 도메인 추가 — 친구/연습방, 캐릭터 제외)
+// 버전: v1.4  (AI 평가 도메인 추가 — PracticeRecording, AiAnalysisJob, AiAnalysisResult)
 // ──────────────────────────────────────────────────────────────
 
 generator client {
@@ -120,6 +120,10 @@ model User {
   ownedRooms             Room[]
   roomMembers            RoomMember[]
   roomJoinRequests       RoomJoinRequest[]
+  // AI 평가
+  practiceRecordings     PracticeRecording[]
+  aiAnalysisJobs         AiAnalysisJob[]
+  aiAnalysisResults      AiAnalysisResult[]
 
   @@map("users")
 }
@@ -330,6 +334,8 @@ model PracticeSession {
   sessionTypes PracticeSessionType[]
   memos        Memo[]
   bpmRecords   BpmRecord[]
+  recordings   PracticeRecording[]
+  aiResults    AiAnalysisResult[]
 
   @@index([userId])
   @@index([practicedAt(sort: Desc)])
@@ -454,6 +460,128 @@ enum AuditAction {
   PRACTICE_DELETE
   PROFILE_UPDATE
   ADMIN_USER_STATUS_CHANGE
+}
+
+// ──────────────────────────────────────────────────────────────
+// AI 평가 도메인 (Phase 3)
+// ──────────────────────────────────────────────────────────────
+
+/// 연습 녹음 파일 메타데이터
+/// 실제 파일은 S3(또는 GCS/R2)에 저장, 여기선 키와 상태만 관리
+model PracticeRecording {
+  id              String          @id @default(uuid())
+  userId          String
+  sessionId       String?         // 연습 세션과 연결 (선택 — 독립 녹음도 허용)
+
+  // 파일 정보
+  storageKey      String          // S3 object key: "recordings/{userId}/{uuid}.webm"
+  fileSizeBytes   Int             // 업로드된 파일 크기 (bytes)
+  durationSeconds Int             // 녹음 길이 (초)
+  mimeType        String          @db.VarChar(50)  // audio/webm, audio/mp4, audio/wav
+
+  // 상태 머신
+  status          RecordingStatus @default(UPLOADED)
+
+  createdAt       DateTime        @default(now()) @db.Timestamptz
+
+  // Relations
+  user        User             @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  session     PracticeSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  analysisJob AiAnalysisJob?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("practice_recordings")
+}
+
+enum RecordingStatus {
+  UPLOADED    // S3 업로드 완료, 분석 대기
+  PROCESSING  // 분석 중 (BullMQ 잡 실행)
+  ANALYZED    // 분석 완료
+  FAILED      // 분석 실패 (재시도 가능)
+  EXPIRED     // 원본 파일 삭제됨 (30일 보존 정책), 분석 결과는 유지
+}
+
+/// AI 분석 작업 — 비동기 처리 상태 추적 + 비용 관리
+model AiAnalysisJob {
+  id          String    @id @default(uuid())
+  recordingId String    @unique
+  userId      String
+
+  // 사용 모델 정보 (나중에 모델 교체/A-B 테스트 대비)
+  provider    AiProvider @default(GEMINI)
+  model       String     @db.VarChar(100)  // "gemini-2.0-flash", "gpt-4o-audio-preview" 등
+
+  // 처리 상태
+  status      JobStatus  @default(PENDING)
+  errorMessage String?   // 실패 시 에러 메시지 (재시도 판단용)
+  retryCount  Int        @default(0)
+
+  // 비용 추적 (프리미엄 월별 사용량 제한 계산용)
+  tokensUsed    Int?     // 소모된 토큰 수
+  audioSeconds  Int?     // 실제 분석된 오디오 길이 (초)
+
+  startedAt   DateTime? @db.Timestamptz
+  completedAt DateTime? @db.Timestamptz
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  recording PracticeRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId],      references: [id], onDelete: Cascade)
+  result    AiAnalysisResult?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])   // Worker가 PENDING 잡 조회 시 사용
+  @@map("ai_analysis_jobs")
+}
+
+enum AiProvider {
+  GEMINI      // Google Gemini API (기본)
+  OPENAI      // OpenAI GPT-4o Audio
+  LOCAL       // Basic Pitch + Librosa (오픈소스 객관 지표용)
+}
+
+enum JobStatus {
+  PENDING     // 큐 대기
+  PROCESSING  // Worker 실행 중
+  COMPLETED   // 완료
+  FAILED      // 실패 (retryCount 확인)
+}
+
+/// AI 분석 결과 — 피드백 텍스트 + 객관 지표
+model AiAnalysisResult {
+  id        String   @id @default(uuid())
+  jobId     String   @unique
+  userId    String
+  sessionId String?  // practice_sessions와 연결 (선택)
+
+  // Gemini 자연어 피드백
+  feedback  String   // AI가 생성한 코멘트 (한국어)
+  language  String   @default("ko") @db.VarChar(10)
+
+  // 객관 지표 — JSONB로 악기/상황별 유연하게 확장
+  // 예시 구조:
+  // {
+  //   "bpmConsistency": 87,          // BPM 일관성 점수 0-100 (Librosa)
+  //   "noteDensityPerMin": 42,        // 분당 음 수 (Basic Pitch)
+  //   "continuousPlaySeconds": 252,   // 최장 연속 연주 구간 (초)
+  //   "pitchAccuracy": null,          // 단선율 악기만 (기타 코드는 null)
+  //   "rhythmAccuracy": 91,           // 박자 정확도 0-100
+  //   "tempoStability": 83            // 템포 안정성 0-100
+  // }
+  metrics   Json     @default("{}")
+
+  // 종합 점수 — 향후 게임화/레벨업 연동 대비 (현재 선택)
+  score     Int?     // 0-100
+
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  // Relations
+  job     AiAnalysisJob    @relation(fields: [jobId],     references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  session PracticeSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("ai_analysis_results")
 }
 
 model AuditLog {

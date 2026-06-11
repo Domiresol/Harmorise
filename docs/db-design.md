@@ -2,8 +2,8 @@
 
 > **프로젝트:** Harmorise
 > **작성팀:** 개발팀
-> **버전:** v1.3
-> **작성일:** 2026년 5월 22일
+> **버전:** v1.4
+> **작성일:** 2026년 6월 11일
 > **DB:** PostgreSQL 16 + TimescaleDB
 
 ---
@@ -16,19 +16,22 @@
 │  users / user_profiles / subscriptions / lesson_relations│
 └──────────────────────────┬──────────────────────────────┘
                            │
-        ┌──────────────────┼──────────────────┬───────────────────┐
-        │                  │                  │                   │
-┌───────▼──────┐  ┌────────▼───────┐  ┌──────▼──────────┐  ┌────▼──────────────────┐
+        ┌──────────────────┼──────────────────┬───────────────────────┐
+        │                  │                  │                       │
+┌───────▼──────┐  ┌────────▼───────┐  ┌──────▼──────────┐  ┌────────▼──────────────┐
 │  연습 도메인  │  │   곡/악기 도메인 │  │   리포트 도메인  │  │   커뮤니티 도메인       │
 │  practice_   │  │  songs         │  │  reports        │  │  friend_requests       │
 │  sessions    │  │  instruments   │  │  streaks        │  │  friends               │
 │  memos       │  │                │  │                 │  │  rooms / room_members  │
 └───────┬──────┘  └────────────────┘  └─────────────────┘  │  room_join_requests   │
         │                                                   └───────────────────────┘
-┌───────▼──────────────────┐
-│  BPM 도메인 (TimescaleDB) │
-│  bpm_records (hypertable) │
-└──────────────────────────┘
+        ├──────────────────────┐
+        │                      │
+┌───────▼──────────────────┐  ┌▼──────────────────────────────────────────────┐
+│  BPM 도메인 (TimescaleDB) │  │  AI 평가 도메인 (Phase 4, Gemini)              │
+│  bpm_records (hypertable) │  │  practice_recordings → ai_analysis_jobs        │
+└──────────────────────────┘  │                          └─ ai_analysis_results │
+                               └───────────────────────────────────────────────┘
 ```
 
 ---
@@ -70,6 +73,9 @@ role (역할)
 | 15 | `reports` | 리포트 | 주간/월간 리포트 |
 | 16 | `notification_settings` | 알림 | 알림 설정 |
 | 17 | `audit_logs` | 보안 | 주요 이벤트 감사 로그 |
+| 18 | `practice_recordings` | AI 평가 | 녹음 파일 메타데이터 (S3 키, 상태) |
+| 19 | `ai_analysis_jobs` | AI 평가 | 비동기 분석 작업 상태 추적 |
+| 20 | `ai_analysis_results` | AI 평가 | Gemini 피드백 + 객관 지표 저장 |
 
 ---
 
@@ -741,10 +747,229 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
 
 ---
 
-## 9. 추후 확장 고려 테이블
+---
+
+## 9. AI 평가 도메인 (Phase 3, v1.4)
+
+> **확정 사항:** 2026-06-11 개발팀 설계
+> Gemini API 기반 자연어 피드백 + Basic Pitch/Librosa 객관 지표 조합
+> 프리미엄 전용 기능으로 제공 예정
+
+---
+
+### 9.1 도메인 구조 개요
+
+```
+practice_sessions (1)
+    └──(1:N)── practice_recordings     ← 녹음 파일 메타데이터
+                    └──(1:1)── ai_analysis_jobs      ← 비동기 분석 작업
+                                    └──(1:1)── ai_analysis_results  ← 분석 결과
+```
+
+---
+
+### 9.2 음원 파일 처리 방식 (Presigned URL 패턴)
+
+서버 경유 업로드 대신 **S3 Presigned URL** 방식을 사용한다. 대용량 파일이 API 서버 메모리를 점유하지 않고, 클라이언트가 S3에 직접 업로드한다.
+
+```
+[클라이언트]                    [API 서버]                [S3]              [BullMQ Worker]
+     │                              │                      │                      │
+     │ POST /recordings/presign     │                      │                      │
+     │─────────────────────────────>│                      │                      │
+     │                              │ Presigned PUT URL 발급│                      │
+     │<─────────────────────────────│                      │                      │
+     │                              │                      │                      │
+     │ PUT (파일 직접 업로드)         │                      │                      │
+     │────────────────────────────────────────────────────>│                      │
+     │                              │                      │ 업로드 완료           │
+     │ POST /recordings/{id}/complete│                      │                      │
+     │─────────────────────────────>│                      │                      │
+     │                              │ practice_recordings 생성                    │
+     │                              │ BullMQ 잡 등록 ──────────────────────────>│
+     │                              │                      │                      │
+     │                              │                      │ 1. Basic Pitch/Librosa 분석
+     │                              │                      │ 2. Gemini API 피드백 생성
+     │                              │                      │ ai_analysis_results 저장
+     │ GET /recordings/{id}/result  │                      │                      │
+     │─────────────────────────────>│                      │                      │
+     │<─────────────────────────────│                      │                      │
+```
+
+**파일 저장 정책**
+
+| 항목 | 내용 |
+|------|------|
+| 저장소 | AWS S3 (또는 GCS / Cloudflare R2) |
+| 경로 규칙 | `recordings/{userId}/{uuid}.{ext}` |
+| 허용 포맷 | audio/webm, audio/mp4, audio/wav, audio/ogg |
+| 최대 크기 | 50MB (약 5분 분량 기준) |
+| 원본 보존 기간 | **30일** 후 S3 자동 삭제 (Lifecycle 정책) |
+| 분석 결과 보존 | **영구** (DB에 텍스트로 저장) |
+| 상태 변경 | 삭제 시 `status = EXPIRED` 로 업데이트 |
+
+---
+
+### 9.3 테이블 상세 명세
+
+#### `practice_recordings` — 녹음 파일 메타데이터
+
+```sql
+CREATE TABLE practice_recordings (
+  id               UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id       UUID          REFERENCES practice_sessions(id) ON DELETE SET NULL,
+
+  storage_key      TEXT          NOT NULL,          -- S3 object key
+  file_size_bytes  INT           NOT NULL,
+  duration_seconds INT           NOT NULL,
+  mime_type        VARCHAR(50)   NOT NULL,
+
+  status           VARCHAR(20)   NOT NULL DEFAULT 'UPLOADED',
+  created_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT chk_recording_status CHECK (
+    status IN ('UPLOADED', 'PROCESSING', 'ANALYZED', 'FAILED', 'EXPIRED')
+  )
+);
+
+CREATE INDEX idx_recordings_user ON practice_recordings(user_id, created_at DESC);
+```
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| storage_key | TEXT | S3 object key (`recordings/{userId}/{uuid}.webm`) |
+| file_size_bytes | INT | 업로드 파일 크기 (bytes) |
+| duration_seconds | INT | 녹음 길이 (초) |
+| mime_type | VARCHAR(50) | audio/webm 등 |
+| status | VARCHAR(20) | UPLOADED → PROCESSING → ANALYZED / FAILED / EXPIRED |
+
+---
+
+#### `ai_analysis_jobs` — 비동기 분석 작업 추적
+
+```sql
+CREATE TABLE ai_analysis_jobs (
+  id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  recording_id  UUID         NOT NULL UNIQUE REFERENCES practice_recordings(id) ON DELETE CASCADE,
+  user_id       UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  provider      VARCHAR(20)  NOT NULL DEFAULT 'GEMINI',
+  model         VARCHAR(100) NOT NULL,               -- "gemini-2.0-flash" 등
+
+  status        VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
+  error_message TEXT,
+  retry_count   INT          NOT NULL DEFAULT 0,
+
+  -- 비용 추적 (프리미엄 월별 사용량 제한)
+  tokens_used   INT,
+  audio_seconds INT,
+
+  started_at    TIMESTAMPTZ,
+  completed_at  TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT chk_provider CHECK (provider IN ('GEMINI', 'OPENAI', 'LOCAL')),
+  CONSTRAINT chk_job_status CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'))
+);
+
+CREATE INDEX idx_jobs_user     ON ai_analysis_jobs(user_id, created_at DESC);
+CREATE INDEX idx_jobs_pending  ON ai_analysis_jobs(status, created_at)
+  WHERE status = 'PENDING';                           -- Worker 조회 최적화
+```
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| provider | VARCHAR(20) | GEMINI / OPENAI / LOCAL |
+| model | VARCHAR(100) | 실제 사용 모델명 (버전 추적용) |
+| retry_count | INT | 실패 후 재시도 횟수 (최대 3회) |
+| tokens_used | INT | 소모 토큰 수 (월별 제한 계산) |
+| audio_seconds | INT | 실제 분석된 오디오 길이 |
+
+> **설계 의도:** `provider` + `model` 컬럼으로 나중에 Gemini → GPT-4o 교체 또는 A/B 테스트 시 이력 추적 가능
+
+---
+
+#### `ai_analysis_results` — 분석 결과
+
+```sql
+CREATE TABLE ai_analysis_results (
+  id         UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id     UUID          NOT NULL UNIQUE REFERENCES ai_analysis_jobs(id) ON DELETE CASCADE,
+  user_id    UUID          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_id UUID          REFERENCES practice_sessions(id) ON DELETE SET NULL,
+
+  -- Gemini 자연어 피드백
+  feedback   TEXT          NOT NULL,
+  language   VARCHAR(10)   NOT NULL DEFAULT 'ko',
+
+  -- 객관 지표 (Basic Pitch + Librosa) — JSONB 확장 구조
+  -- 악기별로 다른 지표를 추가할 수 있도록 JSONB 사용
+  metrics    JSONB         NOT NULL DEFAULT '{}',
+
+  -- 종합 점수 (향후 게임화/캐릭터 경험치 연동 대비)
+  score      INT,                                    -- 0-100, 현재 선택
+
+  created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_results_user ON ai_analysis_results(user_id, created_at DESC);
+```
+
+**`metrics` JSONB 구조 (예시)**
+```json
+{
+  "bpmConsistency":       87,    // BPM 일관성 0-100 (Librosa)
+  "noteDensityPerMin":    42,    // 분당 음 수 (Basic Pitch)
+  "continuousPlaySec":   252,    // 최장 연속 연주 (초)
+  "rhythmAccuracy":       91,    // 박자 정확도 0-100 (Librosa onset)
+  "tempoStability":       83,    // 템포 안정성 0-100
+  "pitchAccuracy":      null     // 단선율 악기만 측정, 코드 악기는 null
+}
+```
+
+> **확장 원칙:** 새 악기/분석 기능 추가 시 `metrics` JSON 키만 추가하면 됨. 스키마 마이그레이션 불필요.
+
+---
+
+### 9.4 상태 머신
+
+```
+[RecordingStatus]              [JobStatus]
+UPLOADED ──────> PROCESSING    PENDING ──────> PROCESSING
+                 │                              │
+          ┌──────┴──────┐              ┌────────┴────────┐
+       ANALYZED       FAILED        COMPLETED          FAILED
+          │                                           (retry_count < 3 → PENDING)
+       EXPIRED
+    (30일 후 S3 삭제)
+```
+
+---
+
+### 9.5 월별 사용량 제한 쿼리 (프리미엄 기능)
+
+```sql
+-- 이번 달 사용자의 AI 분석 횟수 및 총 오디오 길이
+SELECT
+  COUNT(*)              AS job_count,
+  SUM(audio_seconds)    AS total_audio_seconds,
+  SUM(tokens_used)      AS total_tokens
+FROM ai_analysis_jobs
+WHERE user_id = $1
+  AND status  = 'COMPLETED'
+  AND created_at >= DATE_TRUNC('month', NOW());
+```
+
+> **프리미엄 제한 기준 (기획팀 결정 필요):**
+> 현재 제안: 월 20회 또는 총 60분 중 먼저 도달하는 기준 적용
+
+---
+
+## 10. 추후 확장 고려 테이블
 
 | 테이블명 | 설명 | Phase |
 |---------|------|-------|
 | `lesson_feedbacks` | 선생님이 학생 기록에 남기는 피드백 | Phase 3 |
-| `ai_recommendations` | AI 맞춤 루틴 추천 결과 | Phase 3 |
-| `audio_analyses` | 오디오 분석 결과 | Phase 3 |
+| `ai_recommendations` | AI 맞춤 루틴 추천 결과 (분석 이력 기반) | Phase 4 |
+| `recording_segments` | 긴 녹음을 구간별로 분리 분석할 때 | Phase 4 |
