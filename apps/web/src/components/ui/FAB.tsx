@@ -19,7 +19,7 @@ export function FAB({ to = '/practice/new', onClick }: FABProps) {
       onClick={handleClick}
       aria-label="연습 기록하기"
       className={[
-        'fixed z-50',
+        'md:hidden fixed z-50',
         'bottom-[68px]',            /* 탭 바(60px) + 여백 8px */
         'left-1/2 -translate-x-1/2',
         'w-14 h-14 rounded-full',

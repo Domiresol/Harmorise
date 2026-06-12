@@ -4,6 +4,7 @@ import { PrivateRoute }  from '../components/ui/PrivateRoute';
 import { AdminRoute }    from '../components/AdminRoute';
 import { BottomTabBar }  from '../components/ui/BottomTabBar';
 import { FAB }           from '../components/ui/FAB';
+import { SideNav }       from '../components/ui/SideNav';
 
 // Admin Pages
 import { AdminLayout }        from '../pages/admin/AdminLayout';
@@ -61,10 +62,19 @@ function AppShell() {
   const location = useLocation();
   const showTab = TAB_ROUTES.some((r) => location.pathname === r);
   const showFab = FAB_ROUTES.some((r) => location.pathname === r);
+  // 사이드 네비: 탭이 보이는 화면 + 탭 없는 서브 화면 모두 (어드민 제외)
+  const showSide = !location.pathname.startsWith('/admin')
+    && !['/', '/login', '/signup', '/find-id', '/reset-password', '/onboarding'].includes(location.pathname);
 
   return (
-    <div className="flex flex-col h-full">
-      <Routes>
+    <div className="flex flex-col md:flex-row h-full">
+      {/* 사이드 네비 — 태블릿+ 전용 (CSS hidden md:flex) */}
+      {showSide && <SideNav />}
+
+      {/* 메인 콘텐츠 영역 */}
+      {/* 모바일에서 탭 바가 있는 경우 하단 패딩 76px, 태블릿+에서는 0 */}
+      <div className={`flex-1 flex flex-col min-h-0 overflow-hidden ${showTab ? 'pb-[76px] md:pb-0' : ''}`}>
+        <Routes>
         {/* ── 공개 화면 ───────────────────────────────── */}
         <Route path="/"              element={<LandingPage />} />
         <Route path="/login"          element={<LoginPage />} />
@@ -120,8 +130,10 @@ function AppShell() {
 
         {/* 404 */}
         <Route path="*" element={<Navigate to="/home" replace />} />
-      </Routes>
+        </Routes>
+      </div>
 
+      {/* 하단 탭 바 — 모바일 전용 (md:hidden 은 컴포넌트 내부에서 처리) */}
       {showTab && <BottomTabBar />}
       {showFab && <FAB />}
     </div>

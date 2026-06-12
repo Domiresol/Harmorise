@@ -71,7 +71,7 @@ export function BottomTabBar() {
     path !== '' && location.pathname.startsWith(path);
 
   return (
-    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[767px] z-50">
+    <nav className="md:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[767px] z-50">
       <div className="bg-white border-t border-slate-200 flex items-center justify-around h-[60px] safe-bottom px-2">
         {tabs.map((tab) => {
           const active = isActive(tab.path);
