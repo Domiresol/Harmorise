@@ -97,16 +97,21 @@ export class RoomsService {
     });
     if (!membership) throw new ForbiddenException('방 멤버만 조회할 수 있습니다.');
 
+    const pendingJoinCount = membership.role === 'HOST'
+      ? await this.prisma.roomJoinRequest.count({ where: { roomId, status: 'PENDING' } })
+      : 0;
+
     return {
-      id:          room.id,
-      name:        room.name,
-      description: room.description,
-      hostId:      room.hostId,
-      createdAt:   room.createdAt,
-      memberCount: room._count.members,
-      myRole:      membership.role,
+      id:               room.id,
+      name:             room.name,
+      description:      room.description,
+      hostId:           room.hostId,
+      createdAt:        room.createdAt,
+      memberCount:      room._count.members,
+      myRole:           membership.role,
+      pendingJoinCount,
       // 방장이 아니면 초대코드 숨김
-      inviteCode:  membership.role === 'HOST' ? room.inviteCode : null,
+      inviteCode:       membership.role === 'HOST' ? room.inviteCode : null,
     };
   }
 

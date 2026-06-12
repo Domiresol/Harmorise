@@ -42,3 +42,74 @@ export async function apiFetch<T>(
 }
 
 export { TOKEN_KEY };
+
+// ──────────────────────────────────────────────────────────
+// 리포트 타입 정의
+// ──────────────────────────────────────────────────────────
+
+export interface WeeklyReportItem {
+  year: number;
+  week: number;
+  label: string;
+  dateRange: string;
+  totalMinutes: number;
+  practicedDays: number;
+  prevDiffMinutes: number | null;
+}
+
+export interface MonthlyReportItem {
+  year: number;
+  month: number;
+  label: string;
+  totalMinutes: number;
+  practicedDays: number;
+  prevDiffMinutes: number | null;
+}
+
+export interface WeeklyReportDetail {
+  year: number;
+  week: number;
+  label: string;
+  dateRange: string;
+  totalMinutes: number;
+  practicedDays: number;
+  prevDiffMinutes: number | null;
+  streak: number;
+  dayData: { day: string; date: string; minutes: number }[];
+  topSongs: { title: string; minutes: number }[];
+  bpmGains: { title: string; fromBpm: number; toBpm: number }[];
+}
+
+export interface MonthlyReportDetail {
+  year: number;
+  month: number;
+  label: string;
+  totalMinutes: number;
+  practicedDays: number;
+  prevDiffMinutes: number | null;
+  bestStreak: number;
+  instruments: { name: string; minutes: number; color: string }[];
+  topBpmSong: { title: string; fromBpm: number; toBpm: number } | null;
+  dayHeatmap: number[];
+  hourHeatmap: number[];
+}
+
+// ──────────────────────────────────────────────────────────
+// 리포트 API 함수
+// ──────────────────────────────────────────────────────────
+
+export function fetchWeeklyReportList(limit = 10) {
+  return apiFetch<WeeklyReportItem[]>(`/practice/stats/report-list?type=weekly&limit=${limit}`);
+}
+
+export function fetchMonthlyReportList(limit = 10) {
+  return apiFetch<MonthlyReportItem[]>(`/practice/stats/report-list?type=monthly&limit=${limit}`);
+}
+
+export function fetchWeeklyReport(year: number, week: number) {
+  return apiFetch<WeeklyReportDetail>(`/practice/stats/weekly?year=${year}&week=${week}`);
+}
+
+export function fetchMonthlyReport(year: number, month: number) {
+  return apiFetch<MonthlyReportDetail>(`/practice/stats/monthly-detail?year=${year}&month=${month}`);
+}

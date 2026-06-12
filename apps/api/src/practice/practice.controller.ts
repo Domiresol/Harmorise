@@ -57,6 +57,48 @@ export class PracticeController {
     return this.practiceService.getSummary(req.user.id);
   }
 
+  /** GET /api/practice/stats/report-list?type=weekly&limit=10 — 주간/월간 리포트 목록 */
+  @Get('stats/report-list')
+  getReportList(
+    @Req() req: AuthRequest,
+    @Query('type') type: 'weekly' | 'monthly' = 'weekly',
+    @Query('limit') limit?: string,
+  ) {
+    return this.practiceService.getReportList(
+      req.user.id,
+      type,
+      limit ? Number(limit) : 10,
+    );
+  }
+
+  /** GET /api/practice/stats/weekly?year=2026&week=21 — 주간 리포트 상세 */
+  @Get('stats/weekly')
+  getWeeklyReport(
+    @Req() req: AuthRequest,
+    @Query('year') year?: string,
+    @Query('week') week?: string,
+  ) {
+    return this.practiceService.getWeeklyReport(
+      req.user.id,
+      year ? Number(year) : undefined,
+      week ? Number(week) : undefined,
+    );
+  }
+
+  /** GET /api/practice/stats/monthly-detail?year=2026&month=5 — 월간 리포트 상세 */
+  @Get('stats/monthly-detail')
+  getMonthlyDetail(
+    @Req() req: AuthRequest,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    return this.practiceService.getMonthlyReport(
+      req.user.id,
+      year  ? Number(year)  : undefined,
+      month ? Number(month) : undefined,
+    );
+  }
+
   /** GET /api/practice/stats/monthly?year=2026&month=5 — 월별 캘린더 통계 */
   @Get('stats/monthly')
   getMonthlyStats(

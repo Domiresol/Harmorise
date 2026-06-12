@@ -101,8 +101,8 @@ function AppShell() {
         <Route path="/songs"         element={<P><SongListPage /></P>} />
 
         {/* ── 보호 화면 — 리포트 ──────────────────────── */}
-        <Route path="/report/weekly/:id"  element={<P><WeeklyReportPage /></P>} />
-        <Route path="/report/monthly/:id" element={<P><MonthlyReportPage /></P>} />
+        <Route path="/report/weekly/:year/:week"   element={<P><WeeklyReportPage /></P>} />
+        <Route path="/report/monthly/:year/:month" element={<P><MonthlyReportPage /></P>} />
 
         {/* ── 보호 화면 — 설정 서브 ───────────────────── */}
         <Route path="/settings/profile" element={<P><ProfileSettingsPage /></P>} />

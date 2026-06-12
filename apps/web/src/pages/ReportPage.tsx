@@ -1,23 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageLayout }  from '../components/ui/PageLayout';
 import { Card }        from '../components/ui/Card';
 import { NoReportState } from '../components/ui/EmptyState';
+import {
+  fetchWeeklyReportList,
+  fetchMonthlyReportList,
+  type WeeklyReportItem,
+  type MonthlyReportItem,
+} from '../lib/api';
 
 type TabType = 'weekly' | 'monthly';
-
-const MOCK_WEEKLY_REPORTS = [
-  { id: 'w1', period: '2026년 5월 4주차', dateRange: '5/18 ~ 5/24', totalMin: 230, prevDiff: +45, practicedays: 5 },
-  { id: 'w2', period: '2026년 5월 3주차', dateRange: '5/11 ~ 5/17', totalMin: 185, prevDiff: -20, practicedays: 4 },
-  { id: 'w3', period: '2026년 5월 2주차', dateRange: '5/4 ~ 5/10',  totalMin: 205, prevDiff: +60, practicedays: 6 },
-  { id: 'w4', period: '2026년 5월 1주차', dateRange: '4/27 ~ 5/3',  totalMin: 145, prevDiff: null, practicedays: 3 },
-];
-
-const MOCK_MONTHLY_REPORTS = [
-  { id: 'm1', period: '2026년 5월', totalMin: 760, prevDiff: +120, practicedays: 18 },
-  { id: 'm2', period: '2026년 4월', totalMin: 640, prevDiff: -80,  practicedays: 15 },
-  { id: 'm3', period: '2026년 3월', totalMin: 720, prevDiff: +200, practicedays: 17 },
-];
 
 function formatDuration(min: number) {
   const h = Math.floor(min / 60);
@@ -29,10 +22,28 @@ export function ReportPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabType>('weekly');
 
+  const [weeklyList, setWeeklyList] = useState<WeeklyReportItem[]>([]);
+  const [monthlyList, setMonthlyList] = useState<MonthlyReportItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    const fn = tab === 'weekly' ? fetchWeeklyReportList : fetchMonthlyReportList;
+    fn()
+      .then((data) => {
+        if (tab === 'weekly') setWeeklyList(data as WeeklyReportItem[]);
+        else setMonthlyList(data as MonthlyReportItem[]);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [tab]);
+
   return (
     <PageLayout title="리포트" hasTabBar>
 
-      {/* ── 탭 ───────────────────────────────────────────── */}
+      {/* 탭 */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4">
         {([['weekly', '주간'], ['monthly', '월간']] as [TabType, string][]).map(([key, label]) => (
           <button
@@ -40,9 +51,7 @@ export function ReportPage() {
             onClick={() => setTab(key)}
             className={[
               'flex-1 py-2 rounded-lg text-sm font-semibold transition-all',
-              tab === key
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-slate-400',
+              tab === key ? 'bg-white text-primary shadow-sm' : 'text-slate-400',
             ].join(' ')}
           >
             {label}
@@ -50,42 +59,52 @@ export function ReportPage() {
         ))}
       </div>
 
-      {/* ── 주간 리포트 목록 ─────────────────────────────── */}
-      {tab === 'weekly' && (
+      {loading && (
+        <div className="flex justify-center py-12">
+          <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        </div>
+      )}
+
+      {error && (
+        <p className="text-center text-red-400 text-sm py-8">{error}</p>
+      )}
+
+      {/* 주간 리포트 목록 */}
+      {!loading && !error && tab === 'weekly' && (
         <div className="flex flex-col gap-3">
-          {MOCK_WEEKLY_REPORTS.length === 0 ? (
+          {weeklyList.length === 0 ? (
             <NoReportState />
           ) : (
-            MOCK_WEEKLY_REPORTS.map((r) => (
+            weeklyList.map((r) => (
               <Card
-                key={r.id}
+                key={`${r.year}-${r.week}`}
                 clickable
-                onClick={() => navigate(`/report/weekly/${r.id}`)}
+                onClick={() => navigate(`/report/weekly/${r.year}/${r.week}`)}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1">
-                    <p className="text-base font-bold text-slate-900">{r.period}</p>
+                    <p className="text-base font-bold text-slate-900">{r.label}</p>
                     <p className="text-xs text-slate-400 mt-0.5">{r.dateRange}</p>
                     <div className="flex items-center gap-3 mt-2">
                       <span className="text-xs text-slate-500">
-                        <span className="font-bold text-slate-700">{formatDuration(r.totalMin)}</span> 연습
+                        <span className="font-bold text-slate-700">{formatDuration(r.totalMinutes)}</span> 연습
                       </span>
                       <span className="text-xs text-slate-300">·</span>
                       <span className="text-xs text-slate-500">
-                        <span className="font-bold text-slate-700">{r.practicedays}</span>일
+                        <span className="font-bold text-slate-700">{r.practicedDays}</span>일
                       </span>
-                      {r.prevDiff !== null && (
+                      {r.prevDiffMinutes !== null && (
                         <>
                           <span className="text-xs text-slate-300">·</span>
-                          <span className={`text-xs font-semibold ${r.prevDiff > 0 ? 'text-primary' : 'text-red-400'}`}>
-                            {r.prevDiff > 0 ? `▲ +${r.prevDiff}분` : `▼ ${r.prevDiff}분`}
+                          <span className={`text-xs font-semibold ${r.prevDiffMinutes >= 0 ? 'text-primary' : 'text-red-400'}`}>
+                            {r.prevDiffMinutes >= 0 ? `▲ +${r.prevDiffMinutes}분` : `▼ ${r.prevDiffMinutes}분`}
                           </span>
                         </>
                       )}
                     </div>
                   </div>
                   <div className="flex-shrink-0 bg-primary-pale rounded-item px-3 py-2 text-center min-w-[56px]">
-                    <p className="text-lg font-bold text-primary">{Math.floor(r.totalMin / 60)}</p>
+                    <p className="text-lg font-bold text-primary">{Math.floor(r.totalMinutes / 60)}</p>
                     <p className="text-xs text-slate-400">시간</p>
                   </div>
                 </div>
@@ -95,41 +114,41 @@ export function ReportPage() {
         </div>
       )}
 
-      {/* ── 월간 리포트 목록 ─────────────────────────────── */}
-      {tab === 'monthly' && (
+      {/* 월간 리포트 목록 */}
+      {!loading && !error && tab === 'monthly' && (
         <div className="flex flex-col gap-3">
-          {MOCK_MONTHLY_REPORTS.length === 0 ? (
+          {monthlyList.length === 0 ? (
             <NoReportState />
           ) : (
-            MOCK_MONTHLY_REPORTS.map((r) => (
+            monthlyList.map((r) => (
               <Card
-                key={r.id}
+                key={`${r.year}-${r.month}`}
                 clickable
-                onClick={() => navigate(`/report/monthly/${r.id}`)}
+                onClick={() => navigate(`/report/monthly/${r.year}/${r.month}`)}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1">
-                    <p className="text-base font-bold text-slate-900">{r.period}</p>
+                    <p className="text-base font-bold text-slate-900">{r.label}</p>
                     <div className="flex items-center gap-3 mt-2">
                       <span className="text-xs text-slate-500">
-                        <span className="font-bold text-slate-700">{formatDuration(r.totalMin)}</span> 연습
+                        <span className="font-bold text-slate-700">{formatDuration(r.totalMinutes)}</span> 연습
                       </span>
                       <span className="text-xs text-slate-300">·</span>
                       <span className="text-xs text-slate-500">
-                        <span className="font-bold text-slate-700">{r.practicedays}</span>일
+                        <span className="font-bold text-slate-700">{r.practicedDays}</span>일
                       </span>
-                      {r.prevDiff !== null && (
+                      {r.prevDiffMinutes !== null && (
                         <>
                           <span className="text-xs text-slate-300">·</span>
-                          <span className={`text-xs font-semibold ${r.prevDiff > 0 ? 'text-primary' : 'text-red-400'}`}>
-                            {r.prevDiff > 0 ? `▲ +${r.prevDiff}분` : `▼ ${r.prevDiff}분`}
+                          <span className={`text-xs font-semibold ${r.prevDiffMinutes >= 0 ? 'text-primary' : 'text-red-400'}`}>
+                            {r.prevDiffMinutes >= 0 ? `▲ +${r.prevDiffMinutes}분` : `▼ ${r.prevDiffMinutes}분`}
                           </span>
                         </>
                       )}
                     </div>
                   </div>
                   <div className="flex-shrink-0 bg-accent-light rounded-item px-3 py-2 text-center min-w-[56px]">
-                    <p className="text-lg font-bold text-teal-600">{Math.floor(r.totalMin / 60)}</p>
+                    <p className="text-lg font-bold text-teal-600">{Math.floor(r.totalMinutes / 60)}</p>
                     <p className="text-xs text-slate-400">시간</p>
                   </div>
                 </div>

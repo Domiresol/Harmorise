@@ -448,8 +448,290 @@ export class PracticeService {
   }
 
   // ─────────────────────────────────────────────────────
+  // 리포트 목록 (주간 / 월간)
+  // ─────────────────────────────────────────────────────
+  async getReportList(userId: string, type: 'weekly' | 'monthly', limit = 10) {
+    const sessions = await this.prisma.practiceSession.findMany({
+      where: { userId },
+      orderBy: { practicedAt: 'desc' },
+      select: { practicedAt: true, durationMinutes: true },
+    });
+
+    if (type === 'weekly') {
+      const weekMap = new Map<string, {
+        year: number; week: number; totalMinutes: number; days: Set<string>;
+      }>();
+      for (const s of sessions) {
+        const { year, week } = this.getISOWeek(s.practicedAt);
+        const key = `${year}-W${String(week).padStart(2, '0')}`;
+        if (!weekMap.has(key)) weekMap.set(key, { year, week, totalMinutes: 0, days: new Set() });
+        const e = weekMap.get(key)!;
+        e.totalMinutes += s.durationMinutes;
+        e.days.add(this.formatDate(s.practicedAt));
+      }
+      const sorted = [...weekMap.values()]
+        .sort((a, b) => a.year !== b.year ? b.year - a.year : b.week - a.week)
+        .slice(0, limit);
+      return sorted.map((v, i) => {
+        const start = this.getWeekStart(v.year, v.week);
+        const end   = new Date(start); end.setUTCDate(start.getUTCDate() + 6);
+        const prev  = sorted[i + 1];
+        return {
+          year: v.year, week: v.week,
+          label: `${v.year}년 ${start.getUTCMonth() + 1}월 ${this.getWeekOfMonth(start)}주차`,
+          dateRange: `${start.getUTCMonth() + 1}/${start.getUTCDate()} ~ ${end.getUTCMonth() + 1}/${end.getUTCDate()}`,
+          totalMinutes: v.totalMinutes,
+          practicedDays: v.days.size,
+          prevDiffMinutes: prev != null ? v.totalMinutes - prev.totalMinutes : null,
+        };
+      });
+    } else {
+      const monthMap = new Map<string, {
+        year: number; month: number; totalMinutes: number; days: Set<string>;
+      }>();
+      for (const s of sessions) {
+        const y = s.practicedAt.getUTCFullYear();
+        const m = s.practicedAt.getUTCMonth() + 1;
+        const key = `${y}-${m}`;
+        if (!monthMap.has(key)) monthMap.set(key, { year: y, month: m, totalMinutes: 0, days: new Set() });
+        const e = monthMap.get(key)!;
+        e.totalMinutes += s.durationMinutes;
+        e.days.add(this.formatDate(s.practicedAt));
+      }
+      const sorted = [...monthMap.values()]
+        .sort((a, b) => a.year !== b.year ? b.year - a.year : b.month - a.month)
+        .slice(0, limit);
+      return sorted.map((v, i) => {
+        const prev = sorted[i + 1];
+        return {
+          year: v.year, month: v.month,
+          label: `${v.year}년 ${v.month}월`,
+          totalMinutes: v.totalMinutes,
+          practicedDays: v.days.size,
+          prevDiffMinutes: prev != null ? v.totalMinutes - prev.totalMinutes : null,
+        };
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 주간 리포트 상세
+  // ─────────────────────────────────────────────────────
+  async getWeeklyReport(userId: string, yearParam?: number, weekParam?: number) {
+    const { year, week } = yearParam != null && weekParam != null
+      ? { year: yearParam, week: weekParam }
+      : this.getISOWeek(new Date());
+
+    const weekStart = this.getWeekStart(year, week);
+    const weekEnd   = new Date(weekStart); weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
+    const nextMonday = new Date(weekStart.getTime() + 7 * 86_400_000);
+
+    const sessions = await this.prisma.practiceSession.findMany({
+      where: { userId, practicedAt: { gte: weekStart, lte: weekEnd } },
+      include: { song: { select: { id: true, title: true } } },
+      orderBy: { practicedAt: 'asc' },
+    });
+
+    const totalMinutes = sessions.reduce((s, p) => s + p.durationMinutes, 0);
+
+    // 지난 주 총 시간
+    const prevStart = new Date(weekStart); prevStart.setUTCDate(weekStart.getUTCDate() - 7);
+    const prevEnd   = new Date(weekStart); prevEnd.setUTCDate(weekStart.getUTCDate() - 1);
+    const prevAgg   = await this.prisma.practiceSession.aggregate({
+      _sum: { durationMinutes: true },
+      where: { userId, practicedAt: { gte: prevStart, lte: prevEnd } },
+    });
+    const prevTotal = prevAgg._sum.durationMinutes ?? 0;
+    const prevDiffMinutes = (prevTotal > 0 || totalMinutes > 0) ? totalMinutes - prevTotal : null;
+
+    // 요일별 데이터 (월~일)
+    const DAY_NAMES = ['월', '화', '수', '목', '금', '토', '일'];
+    const dayData = DAY_NAMES.map((day, i) => {
+      const date = new Date(weekStart); date.setUTCDate(weekStart.getUTCDate() + i);
+      const dateStr = this.formatDate(date);
+      const minutes = sessions
+        .filter(s => this.formatDate(s.practicedAt) === dateStr)
+        .reduce((acc, s) => acc + s.durationMinutes, 0);
+      return { day, date: dateStr, minutes };
+    });
+
+    // 곡별 연습 시간 TOP 3
+    const songMinMap = new Map<string, { title: string; minutes: number }>();
+    for (const s of sessions) {
+      if (!s.song) continue;
+      const e = songMinMap.get(s.song.id);
+      if (e) e.minutes += s.durationMinutes;
+      else   songMinMap.set(s.song.id, { title: s.song.title, minutes: s.durationMinutes });
+    }
+    const topSongs = [...songMinMap.values()]
+      .sort((a, b) => b.minutes - a.minutes)
+      .slice(0, 3);
+
+    // BPM 향상 곡 (이번 주 BPM 레코드)
+    const bpmRecords = await this.prisma.bpmRecord.findMany({
+      where: { userId, recordedAt: { gte: weekStart, lt: nextMonday } },
+      include: { song: { select: { title: true } } },
+      orderBy: { recordedAt: 'asc' },
+    });
+    const bpmBySong = new Map<string, { title: string; records: number[] }>();
+    for (const r of bpmRecords) {
+      const e = bpmBySong.get(r.songId);
+      if (e) e.records.push(r.bpm);
+      else   bpmBySong.set(r.songId, { title: r.song.title, records: [r.bpm] });
+    }
+    const bpmGains: { title: string; fromBpm: number; toBpm: number }[] = [];
+    for (const [, v] of bpmBySong) {
+      if (v.records.length >= 2) {
+        const first = v.records[0]; const last = v.records[v.records.length - 1];
+        if (last > first) bpmGains.push({ title: v.title, fromBpm: first, toBpm: last });
+      }
+    }
+
+    const practicedDays = new Set(sessions.map(s => this.formatDate(s.practicedAt))).size;
+    const { currentStreak } = await this.computeStreak(userId);
+
+    return {
+      year, week,
+      label: `${year}년 ${weekStart.getUTCMonth() + 1}월 ${this.getWeekOfMonth(weekStart)}주차`,
+      dateRange: `${weekStart.getUTCMonth() + 1}/${weekStart.getUTCDate()} ~ ${weekEnd.getUTCMonth() + 1}/${weekEnd.getUTCDate()}`,
+      totalMinutes, practicedDays, prevDiffMinutes,
+      streak: currentStreak,
+      dayData, topSongs, bpmGains,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 월간 리포트 상세
+  // ─────────────────────────────────────────────────────
+  async getMonthlyReport(userId: string, yearParam?: number, monthParam?: number) {
+    const now = new Date();
+    const year  = yearParam  ?? now.getUTCFullYear();
+    const month = monthParam ?? now.getUTCMonth() + 1;
+
+    const startDate  = new Date(Date.UTC(year, month - 1, 1));
+    const endDate    = new Date(Date.UTC(year, month, 0));
+    const nextMonthStart = new Date(Date.UTC(year, month, 1));
+
+    const sessions = await this.prisma.practiceSession.findMany({
+      where: { userId, practicedAt: { gte: startDate, lte: endDate } },
+      include: { instrument: { select: { name: true } } },
+      orderBy: { practicedAt: 'asc' },
+    });
+
+    const totalMinutes  = sessions.reduce((s, p) => s + p.durationMinutes, 0);
+    const practicedDays = new Set(sessions.map(s => this.formatDate(s.practicedAt))).size;
+
+    // 전달 대비
+    const prevYear  = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevAgg   = await this.prisma.practiceSession.aggregate({
+      _sum: { durationMinutes: true },
+      where: {
+        userId,
+        practicedAt: {
+          gte: new Date(Date.UTC(prevYear, prevMonth - 1, 1)),
+          lte: new Date(Date.UTC(prevYear, prevMonth, 0)),
+        },
+      },
+    });
+    const prevTotal = prevAgg._sum.durationMinutes ?? 0;
+    const prevDiffMinutes = (prevTotal > 0 || totalMinutes > 0) ? totalMinutes - prevTotal : null;
+
+    // 악기별 분포
+    const COLORS = ['#0EA5E9', '#2DD4BF', '#7DD3FC', '#F59E0B', '#10B981'];
+    const instMap = new Map<string, number>();
+    for (const s of sessions) {
+      const name = s.instrument?.name ?? '기타';
+      instMap.set(name, (instMap.get(name) ?? 0) + s.durationMinutes);
+    }
+    const instruments = [...instMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, minutes], i) => ({ name, minutes, color: COLORS[i % COLORS.length] }));
+
+    // 이달 최고 BPM 향상 곡
+    const bpmRecords = await this.prisma.bpmRecord.findMany({
+      where: { userId, recordedAt: { gte: startDate, lt: nextMonthStart } },
+      include: { song: { select: { title: true } } },
+      orderBy: { recordedAt: 'asc' },
+    });
+    const bpmBySong = new Map<string, { title: string; records: number[] }>();
+    for (const r of bpmRecords) {
+      const e = bpmBySong.get(r.songId);
+      if (e) e.records.push(r.bpm);
+      else   bpmBySong.set(r.songId, { title: r.song.title, records: [r.bpm] });
+    }
+    let topBpmSong: { title: string; fromBpm: number; toBpm: number } | null = null;
+    let maxGain = 0;
+    for (const [, v] of bpmBySong) {
+      if (v.records.length >= 2) {
+        const gain = v.records[v.records.length - 1] - v.records[0];
+        if (gain > maxGain) {
+          maxGain = gain;
+          topBpmSong = { title: v.title, fromBpm: v.records[0], toBpm: v.records[v.records.length - 1] };
+        }
+      }
+    }
+
+    // 요일별 히트맵 (0=월~6=일, 평균 분)
+    const dayMinutes = new Array(7).fill(0) as number[];
+    const dayCounts  = new Array(7).fill(0) as number[];
+    for (const s of sessions) {
+      const dow = (s.practicedAt.getUTCDay() + 6) % 7;
+      dayMinutes[dow] += s.durationMinutes;
+      dayCounts[dow]++;
+    }
+    const dayHeatmap = dayMinutes.map((m, i) => dayCounts[i] > 0 ? Math.round(m / dayCounts[i]) : 0);
+
+    // 시간대별 히트맵 (createdAt 기준)
+    const hourHeatmap = new Array(24).fill(0) as number[];
+    for (const s of sessions) {
+      hourHeatmap[s.createdAt.getUTCHours()]++;
+    }
+
+    // 이달 최장 스트리크
+    const practicedSet = [...new Set(sessions.map(s => this.formatDate(s.practicedAt)))].sort();
+    let bestStreak = practicedSet.length > 0 ? 1 : 0;
+    let run = 1;
+    for (let i = 1; i < practicedSet.length; i++) {
+      const diff = (new Date(practicedSet[i]).getTime() - new Date(practicedSet[i - 1]).getTime()) / 86_400_000;
+      run = diff === 1 ? run + 1 : 1;
+      if (run > bestStreak) bestStreak = run;
+    }
+
+    return {
+      year, month,
+      label: `${year}년 ${month}월`,
+      totalMinutes, practicedDays, prevDiffMinutes,
+      bestStreak, instruments, topBpmSong, dayHeatmap, hourHeatmap,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────
   // 내부 헬퍼
   // ─────────────────────────────────────────────────────
+  // ISO 주차 계산 (public — 컨트롤러에서도 사용)
+  getISOWeek(date: Date): { year: number; week: number } {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+    return { year: d.getUTCFullYear(), week };
+  }
+
+  private getWeekStart(year: number, week: number): Date {
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const dow  = jan4.getUTCDay() || 7;
+    const start = new Date(jan4);
+    start.setUTCDate(jan4.getUTCDate() - dow + 1 + (week - 1) * 7);
+    return start;
+  }
+
+  private getWeekOfMonth(date: Date): number {
+    // 단순히 날짜 기준으로 주차 계산: 1~7일=1주차, 8~14일=2주차...
+    return Math.ceil(date.getUTCDate() / 7);
+  }
+
   private formatDate(date: Date): string {
     // @db.Date 값은 UTC midnight으로 저장됨
     const y = date.getUTCFullYear();

@@ -11,6 +11,7 @@ interface RoomDetail {
   inviteCode: string | null;
   memberCount: number;
   myRole: 'HOST' | 'MEMBER';
+  pendingJoinCount: number;
 }
 
 interface FeedItem {
@@ -85,9 +86,14 @@ export function RoomDetailPage() {
       showBack
       rightAction={
         room?.myRole === 'HOST' ? (
-          <button onClick={() => nav(`/community/rooms/${roomId}/settings`)} className="text-slate-500 text-sm">
-            관리
-          </button>
+          <div className="relative inline-flex">
+            <button onClick={() => nav(`/community/rooms/${roomId}/settings`)} className="text-slate-500 text-sm">
+              관리
+            </button>
+            {(room.pendingJoinCount ?? 0) > 0 && (
+              <span className="absolute -top-0.5 -right-1.5 w-2 h-2 rounded-full bg-red-500" />
+            )}
+          </div>
         ) : undefined
       }
     >
