@@ -80,20 +80,27 @@ export function TunerPage() {
   const [listening,  setListening]  = useState(false);
   const [error,      setError]      = useState<string | null>(null);
 
-  const ctxRef    = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef    = useRef<number | null>(null);
+  const ctxRef       = useRef<AudioContext | null>(null);
+  const analyserRef  = useRef<AnalyserNode | null>(null);
+  const streamRef    = useRef<MediaStream | null>(null);
+  const rafRef       = useRef<number | null>(null);
+  const lastTickRef  = useRef<number>(0);
 
-  // ── 분석 루프 ─────────────────────────────────────────────
+  // ── 분석 루프 (0.3초 간격 throttle) ──────────────────────
   const analyse = useCallback(() => {
     if (!analyserRef.current || !ctxRef.current) return;
-    const buf = new Float32Array(analyserRef.current.fftSize);
-    analyserRef.current.getFloatTimeDomainData(buf);
 
-    const freq = autoCorrelate(buf, ctxRef.current.sampleRate);
-    if (freq > 30 && freq < 2100) {
-      setDetected(freqToNote(freq));
+    const now = performance.now();
+    if (now - lastTickRef.current >= 100) {
+      lastTickRef.current = now;
+
+      const buf = new Float32Array(analyserRef.current.fftSize);
+      analyserRef.current.getFloatTimeDomainData(buf);
+
+      const freq = autoCorrelate(buf, ctxRef.current.sampleRate);
+      if (freq > 30 && freq < 2100) {
+        setDetected(freqToNote(freq));
+      }
     }
 
     rafRef.current = requestAnimationFrame(analyse);
@@ -139,21 +146,23 @@ export function TunerPage() {
   // ── 튜닝 상태 ─────────────────────────────────────────────
   const absCents = detected ? Math.abs(detected.cents) : 99;
   const tuneStatus =
-    !listening                ? '마이크를 켜서 튜닝을 시작하세요' :
-    !detected                 ? '소리를 감지하는 중...' :
-    absCents <= 4             ? '✓ 정확합니다!' :
-    (detected.cents > 0)      ? '♯ 너무 높습니다' : '♭ 너무 낮습니다';
+    !listening           ? '마이크를 켜서 튜닝을 시작하세요' :
+    !detected            ? '소리를 감지하는 중...' :
+    absCents <= 3        ? '✓ 완벽해요!' :
+    absCents <= 10
+      ? (detected.cents > 0 ? '♯ 조금 높아요' : '♭ 조금 낮아요')
+      : (detected.cents > 0 ? '♯ 많이 높아요' : '♭ 많이 낮아요');
 
   const noteColor =
-    !detected       ? 'text-slate-200' :
-    absCents <= 4   ? 'text-green-500' :
-    absCents <= 15  ? 'text-yellow-500' :
+    !detected        ? 'text-slate-200' :
+    absCents <= 3    ? 'text-green-500' :
+    absCents <= 10   ? 'text-yellow-500' :
     'text-red-500';
 
   const needleColor =
-    !detected       ? 'bg-slate-300' :
-    absCents <= 4   ? 'bg-green-500' :
-    absCents <= 15  ? 'bg-yellow-400' :
+    !detected        ? 'bg-slate-300' :
+    absCents <= 3    ? 'bg-green-500' :
+    absCents <= 10   ? 'bg-yellow-400' :
     'bg-red-500';
 
   // 바늘 위치: cents -50 → 0%, 0 → 50%, +50 → 100%
