@@ -9,51 +9,6 @@ import {
   type PracticeSession,
 } from '../hooks/usePracticeSessions';
 
-// ─── BPM 미니 차트 ────────────────────────────────────────────
-function MiniLineChart({ data }: { data: { date: string; bpm: number }[] }) {
-  if (data.length < 2) return null;
-
-  const width = 280;
-  const height = 60;
-  const padX = 12;
-  const padY = 8;
-
-  const bpms = data.map((d) => d.bpm);
-  const minBpm = Math.min(...bpms) - 4;
-  const maxBpm = Math.max(...bpms) + 4;
-
-  const toX = (i: number) =>
-    padX + (i / (data.length - 1)) * (width - padX * 2);
-  const toY = (v: number) =>
-    padY + ((maxBpm - v) / (maxBpm - minBpm)) * (height - padY * 2);
-
-  const points = data.map((d, i) => `${toX(i)},${toY(d.bpm)}`).join(' ');
-  const fillPoints = `${toX(0)},${height} ${points} ${toX(data.length - 1)},${height}`;
-
-  return (
-    <svg width={width} height={height} className="w-full">
-      <defs>
-        <linearGradient id="bpmGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#0EA5E9" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#0EA5E9" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon points={fillPoints} fill="url(#bpmGrad)" />
-      <polyline
-        points={points}
-        fill="none"
-        stroke="#0EA5E9"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {data.map((d, i) => (
-        <circle key={i} cx={toX(i)} cy={toY(d.bpm)} r="3" fill="#0EA5E9" />
-      ))}
-    </svg>
-  );
-}
-
 // ─── 메인 컴포넌트 ────────────────────────────────────────────
 export function PracticeDetailPage() {
   const { id }   = useParams<{ id: string }>();

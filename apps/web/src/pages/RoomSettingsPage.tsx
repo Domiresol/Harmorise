@@ -20,7 +20,6 @@ export function RoomSettingsPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const nav = useNavigate();
 
-  const [room, setRoom] = useState<RoomInfo | null>(null);
   const [requests, setRequests] = useState<JoinRequest[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -33,7 +32,6 @@ export function RoomSettingsPage() {
       apiFetch<RoomInfo>(`/rooms/${roomId}`),
       apiFetch<JoinRequest[]>(`/rooms/${roomId}/join-requests`),
     ]);
-    setRoom(r);
     setName(r.name);
     setDescription(r.description ?? '');
     setRequests(reqs);

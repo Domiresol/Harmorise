@@ -101,7 +101,7 @@ export function PracticeEditPage() {
         bpm:             bpm ? Number(bpm) : undefined,
         targetBpm:       targetBpm ? Number(targetBpm) : undefined,
         practiceTypes:   types,
-        memo:            memo || null,
+        memo:            memo || undefined,
       });
       navigate(`/practice/${id}`, { replace: true });
     } catch (e) {
