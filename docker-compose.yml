@@ -87,6 +87,65 @@ services:
     ports:
       - "8080:8080"
 
+  # ──────────────────────────────────────
+  # NestJS API
+  # ──────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: harmorise-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # ── DB ─────────────────────────────
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # ── Redis ──────────────────────────
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # ── Kafka ──────────────────────────
+      KAFKA_BROKERS: redpanda:9092
+      # ── JWT ────────────────────────────
+      JWT_SECRET: ${JWT_SECRET:-}
+      PHONE_TOKEN_SECRET: ${PHONE_TOKEN_SECRET:-}
+      # ── SMS (Solapi) ───────────────────
+      SOLAPI_API_KEY: ${SOLAPI_API_KEY:-}
+      SOLAPI_API_SECRET: ${SOLAPI_API_SECRET:-}
+      SOLAPI_SENDER: ${SOLAPI_SENDER:-}
+      # ── CORS ───────────────────────────
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────
+  # React Web (nginx)
+  # ──────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: harmorise-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+
 volumes:
   postgres_data:
   redis_data:
