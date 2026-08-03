@@ -31,6 +31,9 @@ jobs:
 
       - run: npm ci
 
+      # Generate Prisma client
+      - run: npx prisma generate --schema=apps/api/prisma/schema.prisma
+
       # Install Playwright browsers for E2E tests
       - run: npx playwright install
 
