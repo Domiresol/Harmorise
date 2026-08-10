@@ -76,13 +76,23 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 업데이트 순서: 코드 구현 → 타입 체크 → 문서 업데이트
 
+## 6. 작업 완료 요약
+
+**모든 작업을 마칠 때마다 해당 대화의 작업 내용을 아래 형식으로 요약한다.**
+
+1. 문제 요약
+2. 원인 요약
+3. 적용 요약
+
+간결하게, 핵심만.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 ---
 
-## 6. 프로젝트 현황 (2026-08-03 기준)
+## 7. 프로젝트 현황 (2026-08-03 기준)
 
 ### 기술 스택
 - **모노레포**: NX 22.7.2

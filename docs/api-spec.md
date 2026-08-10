@@ -2,7 +2,7 @@
 
 > **Base URL** `http://localhost:3000/api` (개발) / `https://api.harmorise.app/api` (운영 예정)
 > **인증 방식** Bearer Token (JWT)  
-> **최종 업데이트** 2026-06-11 (리포트 API, AI 평가 API 명세 추가)
+> **최종 업데이트** 2026-08-10 (문서-코드 동기화: 누락 엔드포인트 추가, 리포트 API 상태 갱신)
 
 ## 보안 정책
 
@@ -485,6 +485,20 @@ SMS 인증 코드 검증. 성공 시 `phoneToken` 반환 (3분 유효).
 
 ---
 
+### GET /users/instruments
+
+악기 마스터 목록. 온보딩/설정 화면의 악기 선택 드롭다운에서 사용.
+
+**Response 200**
+
+```json
+[
+  { "id": "uuid", "name": "기타", "category": "현악기" }
+]
+```
+
+---
+
 ## 관리자 (Admin)
 
 > 모든 엔드포인트 `Authorization: Bearer {token}` + `role=ADMIN` 필수  
@@ -748,12 +762,12 @@ BPM 기록이 있는 곡 목록. 홈 화면 + BPM 목록 화면에서 사용.
 
 ---
 
-## 개발 예정 (Phase 1 미완성)
+## 개발 예정
+
+> 리포트 API는 `/practice/stats/*`로 구현 완료됨 (아래 "리포트 API" 섹션 참고).
 
 | 엔드포인트 | 설명 | 우선순위 |
 |------------|------|----------|
-| `GET /reports` | 리포트 목록 | 🟡 중간 |
-| `GET /reports/:id` | 리포트 상세 | 🟡 중간 |
 | `GET /users/me/notifications` | 알림 설정 조회 | 🟡 중간 |
 | `PATCH /users/me/notifications` | 알림 설정 변경 | 🟡 중간 |
 
@@ -1068,7 +1082,13 @@ DB에 기록되는 내부 이벤트 로그. 별도 API 엔드포인트 없이 �
 
 ---
 
-#### `DELETE /rooms/:roomId/members/:userId` — 멤버 강퇴 (방장)
+#### `DELETE /rooms/:roomId/members/me` — 방 나가기 (본인)
+
+**Response 200** `{ "ok": true }`
+
+---
+
+#### `DELETE /rooms/:roomId/members/:targetUserId` — 멤버 강퇴 (방장)
 
 **Response 200** `{ "ok": true }`
 
@@ -1082,7 +1102,7 @@ DB에 기록되는 내부 이벤트 로그. 별도 API 엔드포인트 없이 �
 
 ## 리포트 API (`/practice/stats`)
 
-> **현재 상태:** 일부 미구현 (Phase 1 개발 예정). 현재 프론트에서 Mock 데이터 사용 중.
+> **현재 상태:** 구현 완료 — 실제 DB 집계, ISO 주차 기준.
 
 ### 리포트 목록
 

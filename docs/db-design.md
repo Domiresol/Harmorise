@@ -2,8 +2,8 @@
 
 > **프로젝트:** Harmorise
 > **작성팀:** 개발팀
-> **버전:** v1.4
-> **작성일:** 2026년 6월 11일
+> **버전:** v1.5
+> **작성일:** 2026년 6월 11일 (v1.5: 2026-08-10 — 캐릭터 시스템 관련 항목 제거[미구현/취소된 기능], `phone_verifications` 추가)
 > **DB:** PostgreSQL 16 + TimescaleDB
 
 ---
@@ -60,22 +60,24 @@ role (역할)
 | 2 | `user_profiles` | 사용자 | 프로필, 목표 설정 |
 | 3 | `subscriptions` | 사용자 | 유/무료 구독 정보 |
 | 4 | `lesson_relations` | 사용자 | 선생님-학생 관계 |
-| 5 | `user_characters` | 캐릭터 | 사용자별 캐릭터 커스터마이징 상태 (1:1) |
-| 6 | `character_items` | 캐릭터 | 잠금 해제 가능한 아이템 마스터 |
-| 7 | `user_unlocked_items` | 캐릭터 | 사용자가 해금한 아이템 (N:M) |
-| 8 | `instruments` | 악기 | 악기 마스터 데이터 |
-| 9 | `songs` | 곡 | 사용자별 연습 곡 |
-| 10 | `practice_sessions` | 연습 | 연습 세션 기록 |
-| 11 | `practice_session_types` | 연습 | 세션-연습유형 관계 |
-| 12 | `memos` | 연습 | 연습 메모 |
-| 13 | `bpm_records` | BPM | BPM 시계열 기록 (hypertable) |
-| 14 | `streaks` | 통계 | 연속 연습 일수 |
-| 15 | `reports` | 리포트 | 주간/월간 리포트 |
-| 16 | `notification_settings` | 알림 | 알림 설정 |
-| 17 | `audit_logs` | 보안 | 주요 이벤트 감사 로그 |
-| 18 | `practice_recordings` | AI 평가 | 녹음 파일 메타데이터 (S3 키, 상태) |
-| 19 | `ai_analysis_jobs` | AI 평가 | 비동기 분석 작업 상태 추적 |
-| 20 | `ai_analysis_results` | AI 평가 | Gemini 피드백 + 객관 지표 저장 |
+| 5 | `phone_verifications` | 인증 | 전화번호 SMS 인증 코드 |
+| 6 | `instruments` | 악기 | 악기 마스터 데이터 |
+| 7 | `songs` | 곡 | 사용자별 연습 곡 |
+| 8 | `practice_sessions` | 연습 | 연습 세션 기록 |
+| 9 | `practice_session_types` | 연습 | 세션-연습유형 관계 |
+| 10 | `memos` | 연습 | 연습 메모 |
+| 11 | `bpm_records` | BPM | BPM 시계열 기록 (hypertable) |
+| 12 | `streaks` | 통계 | 연속 연습 일수 |
+| 13 | `reports` | 리포트 | 주간/월간 리포트 |
+| 14 | `notification_settings` | 알림 | 알림 설정 |
+| 15 | `audit_logs` | 보안 | 주요 이벤트 감사 로그 |
+| 16 | `practice_recordings` | AI 평가 | 녹음 파일 메타데이터 (S3 키, 상태) |
+| 17 | `ai_analysis_jobs` | AI 평가 | 비동기 분석 작업 상태 추적 |
+| 18 | `ai_analysis_results` | AI 평가 | Gemini 피드백 + 객관 지표 저장 |
+
+> 커뮤니티 도메인(`friend_requests`, `friends`, `rooms`, `room_members`, `room_join_requests`)은 8장에 별도 기술.
+>
+> ⚠️ **캐릭터 시스템(`user_characters`, `character_items`, `user_unlocked_items`)은 2026-06-09 기획 결정으로 제외됨 — `schema.prisma`에 해당 테이블 없음.**
 
 ---
 
@@ -201,129 +203,31 @@ CREATE INDEX idx_lesson_student ON lesson_relations(student_id);
 
 ---
 
-### 4.5 `user_characters` — 캐릭터 커스터마이징 상태
-
-> 사용자별 1:1. 연습 기반으로 레벨과 경험치가 올라가며, 장착 중인 아이템 ID를 저장한다.
+### 4.5 `phone_verifications` — 전화번호 SMS 인증
 
 ```sql
-CREATE TYPE character_type_enum AS ENUM (
-  'HUMAN',   -- 사람형
-  'ANIMAL',  -- 동물형
-  'ROBOT'    -- 로봇형
+CREATE TABLE phone_verifications (
+  id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone       VARCHAR(20)  NOT NULL,
+  code        VARCHAR(6)   NOT NULL,
+  expires_at  TIMESTAMPTZ  NOT NULL,
+  is_used     BOOLEAN      NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE user_characters (
-  id                UUID                 PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id           UUID                 NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-  character_type    character_type_enum  NOT NULL DEFAULT 'HUMAN',
-  level             INT                  NOT NULL DEFAULT 1,
-  exp               INT                  NOT NULL DEFAULT 0,
-
-  -- 장착 중인 아이템 (각 슬롯에 하나)
-  equipped_hair     VARCHAR(50),         -- character_items.id
-  equipped_outfit   VARCHAR(50),         -- character_items.id
-  equipped_accessory VARCHAR(50),        -- character_items.id
-  equipped_background VARCHAR(50),       -- character_items.id
-  equipped_instrument INT REFERENCES instruments(id),  -- 캐릭터가 들고 있는 악기
-
-  -- 기본 외형 옵션 (enum 없이 자유값으로 관리)
-  skin_tone         VARCHAR(20)          NOT NULL DEFAULT 'default',
-  hair_color        VARCHAR(20)          NOT NULL DEFAULT 'default',
-
-  -- 확장 커스터마이징 (추후 신규 슬롯 대비)
-  extras            JSONB                NOT NULL DEFAULT '{}',
-
-  created_at        TIMESTAMPTZ          NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ          NOT NULL DEFAULT NOW()
-);
+CREATE INDEX idx_phone_verifications_phone ON phone_verifications(phone);
 ```
 
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| character_type | ENUM | HUMAN / ANIMAL / ROBOT |
-| level | INT | 연습량 기반 캐릭터 레벨 (기본 1) |
-| exp | INT | 경험치 — 연습 세션 완료 시 누적 |
-| equipped_* | VARCHAR(50) | 각 슬롯에 장착된 `character_items.id` |
-| equipped_instrument | INT | 캐릭터가 들고 있는 악기 FK |
-| skin_tone / hair_color | VARCHAR | 색상 값 (hex 또는 명칭) |
-| extras | JSONB | 미래 확장용 커스터마이징 데이터 |
+| phone | VARCHAR(20) | 인증 대상 전화번호 |
+| code | VARCHAR(6) | 6자리 인증 코드 |
+| expires_at | TIMESTAMPTZ | 만료 시각 |
+| is_used | BOOLEAN | 사용 여부 |
 
 ---
 
-### 4.6 `character_items` — 아이템 마스터
-
-> 게임 내 해금 가능한 아이템 목록. 연습 조건 달성 시 `user_unlocked_items`에 추가된다.
-
-```sql
-CREATE TYPE item_type_enum AS ENUM (
-  'HAIR',        -- 헤어 스타일
-  'OUTFIT',      -- 의상
-  'ACCESSORY',   -- 악세서리
-  'BACKGROUND'   -- 배경 테마
-);
-
-CREATE TABLE character_items (
-  id                VARCHAR(50)     PRIMARY KEY,   -- 예: 'outfit_rock_001', 'bg_concert_hall'
-  item_type         item_type_enum  NOT NULL,
-  name              VARCHAR(100)    NOT NULL,
-  description       TEXT,
-  thumbnail_url     TEXT,                          -- 아이템 미리보기 이미지
-  unlock_condition  VARCHAR(200),                  -- 예: '7일 연속 연습', '레벨 5 달성'
-  unlock_streak     INT,                           -- 스트리크 달성 조건 (일 수)
-  unlock_level      INT,                           -- 레벨 달성 조건
-  is_default        BOOLEAN         NOT NULL DEFAULT FALSE,
-  is_premium        BOOLEAN         NOT NULL DEFAULT FALSE,  -- 유료 전용 아이템
-  sort_order        INT             NOT NULL DEFAULT 0,
-  created_at        TIMESTAMPTZ     NOT NULL DEFAULT NOW()
-);
-
--- 기본 아이템 데이터
-INSERT INTO character_items (id, item_type, name, is_default) VALUES
-  ('hair_default',       'HAIR',       '기본 헤어',     TRUE),
-  ('outfit_default',     'OUTFIT',     '기본 의상',     TRUE),
-  ('bg_practice_room',   'BACKGROUND', '연습실',        TRUE),
-  ('outfit_rock_001',    'OUTFIT',     '록 밴드 의상',  FALSE),
-  ('bg_concert_hall',    'BACKGROUND', '콘서트홀',      FALSE);
-```
-
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| id | VARCHAR(50) | 아이템 고유 ID (슬러그 형태) |
-| item_type | ENUM | HAIR / OUTFIT / ACCESSORY / BACKGROUND |
-| unlock_condition | VARCHAR | 조건 텍스트 (UI 표시용) |
-| unlock_streak | INT | 연속 연습 N일 조건 |
-| unlock_level | INT | 캐릭터 레벨 N 달성 조건 |
-| is_premium | BOOLEAN | TRUE면 PREMIUM 구독자 전용 |
-
----
-
-### 4.7 `user_unlocked_items` — 유저 해금 아이템 (N:M)
-
-> 사용자가 해금한 아이템 이력. BullMQ 잡이 연습 완료 이벤트 수신 후 조건 체크하여 INSERT한다.
-
-```sql
-CREATE TABLE user_unlocked_items (
-  user_id     UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  item_id     VARCHAR(50)  NOT NULL REFERENCES character_items(id),
-  unlocked_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-
-  PRIMARY KEY (user_id, item_id)
-);
-
-CREATE INDEX idx_unlocked_user ON user_unlocked_items(user_id);
-```
-
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| user_id | UUID | 사용자 FK |
-| item_id | VARCHAR(50) | 해금된 아이템 FK |
-| unlocked_at | TIMESTAMPTZ | 해금 시각 |
-
-> **해금 플로우:** 연습 세션 완료 → Kafka 이벤트 발행 → BullMQ Consumer → 조건 체크 → `user_unlocked_items` INSERT → 알림 발송
-
----
-
-### 4.9 `instruments` — 악기 마스터
+### 4.6 `instruments` — 악기 마스터
 
 ```sql
 CREATE TABLE instruments (
@@ -346,7 +250,7 @@ INSERT INTO instruments (name, category) VALUES
 
 ---
 
-### 4.10 `songs` — 연습 곡
+### 4.7 `songs` — 연습 곡
 
 ```sql
 CREATE TABLE songs (
@@ -371,7 +275,7 @@ CREATE INDEX idx_songs_user_id ON songs(user_id);
 
 ---
 
-### 4.11 `practice_sessions` — 연습 세션 기록
+### 4.8 `practice_sessions` — 연습 세션 기록
 
 > 핵심 테이블
 
@@ -404,7 +308,7 @@ CREATE INDEX idx_practice_user_date    ON practice_sessions(user_id, practiced_a
 
 ---
 
-### 4.12 `practice_session_types` — 연습 유형 (N:M)
+### 4.9 `practice_session_types` — 연습 유형 (N:M)
 
 ```sql
 CREATE TYPE practice_type_enum AS ENUM (
@@ -427,7 +331,7 @@ ALTER TABLE practice_session_types
 
 ---
 
-### 4.13 `memos` — 연습 메모
+### 4.10 `memos` — 연습 메모
 
 ```sql
 CREATE TABLE memos (
@@ -450,7 +354,7 @@ CREATE INDEX idx_memos_session_id ON memos(session_id);
 
 ---
 
-### 4.14 `bpm_records` — BPM 시계열 기록 (TimescaleDB hypertable)
+### 4.11 `bpm_records` — BPM 시계열 기록 (TimescaleDB hypertable)
 
 ```sql
 CREATE TABLE bpm_records (
@@ -480,7 +384,7 @@ CREATE INDEX idx_bpm_user_song ON bpm_records(user_id, song_id, recorded_at DESC
 
 ---
 
-### 4.15 `streaks` — 스트리크
+### 4.12 `streaks` — 스트리크
 
 ```sql
 CREATE TABLE streaks (
@@ -502,7 +406,7 @@ CREATE TABLE streaks (
 
 ---
 
-### 4.16 `reports` — 리포트
+### 4.13 `reports` — 리포트
 
 ```sql
 CREATE TABLE reports (
@@ -532,7 +436,7 @@ CREATE INDEX idx_reports_user_id ON reports(user_id, report_type, period_start D
 
 ---
 
-### 4.17 `notification_settings` — 알림 설정
+### 4.14 `notification_settings` — 알림 설정
 
 ```sql
 CREATE TABLE notification_settings (
@@ -556,7 +460,6 @@ users (1)
   ├──(1:1)── subscriptions
   ├──(1:1)── streaks
   ├──(1:1)── notification_settings
-  ├──(1:1)── user_characters ──(N:M)── character_items (user_unlocked_items)
   ├──(1:N)── songs
   ├──(1:N)── practice_sessions
   │             ├──(1:N)── practice_session_types
@@ -568,11 +471,7 @@ users (1)
   └──(N:M)── users (lesson_relations: teacher ↔ student)
 
 instruments (1)
-  ├──(1:N)── practice_sessions
-  └──(1:N)── user_characters (equipped_instrument)
-
-character_items (1)
-  └──(N:M)── users (user_unlocked_items)
+  └──(1:N)── practice_sessions
 ```
 
 ---
@@ -606,7 +505,7 @@ ORDER BY week DESC;
 
 ---
 
-### 4.18 `audit_logs` — 감사 로그
+### 4.15 `audit_logs` — 감사 로그
 
 ```sql
 CREATE TYPE "AuditAction" AS ENUM (

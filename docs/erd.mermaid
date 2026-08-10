@@ -1,7 +1,16 @@
 ---
-title: Harmorise ERD (v1.3 — 커뮤니티 도메인 추가 / 캐릭터 제거)
+title: Harmorise ERD (v1.4 — AI 평가 도메인 추가 / phone_verifications 추가)
 ---
 erDiagram
+
+  phone_verifications {
+    uuid    id              PK
+    varchar phone
+    varchar code
+    timestamptz expires_at
+    boolean is_used
+    timestamptz created_at
+  }
 
   users {
     uuid    id              PK
@@ -176,6 +185,47 @@ erDiagram
     timestamptz updated_at
   }
 
+  %% ── AI 평가 도메인 ──
+  practice_recordings {
+    uuid    id              PK
+    uuid    user_id         FK
+    uuid    session_id      FK
+    text    storage_key     "S3 object key"
+    int     file_size_bytes
+    int     duration_seconds
+    varchar mime_type
+    varchar status          "UPLOADED | PROCESSING | ANALYZED | FAILED | EXPIRED"
+    timestamptz created_at
+  }
+
+  ai_analysis_jobs {
+    uuid    id              PK
+    uuid    recording_id    FK "UK"
+    uuid    user_id         FK
+    varchar provider        "GEMINI | OPENAI | LOCAL"
+    varchar model
+    varchar status          "PENDING | PROCESSING | COMPLETED | FAILED"
+    text    error_message
+    int     retry_count
+    int     tokens_used
+    int     audio_seconds
+    timestamptz started_at
+    timestamptz completed_at
+    timestamptz created_at
+  }
+
+  ai_analysis_results {
+    uuid    id              PK
+    uuid    job_id          FK "UK"
+    uuid    user_id         FK
+    uuid    session_id      FK
+    text    feedback
+    varchar language
+    jsonb   metrics
+    int     score
+    timestamptz created_at
+  }
+
   %% ──────────────────────────────────────────────
   %% 사용자 도메인
   %% ──────────────────────────────────────────────
@@ -228,3 +278,14 @@ erDiagram
   users ||--o{  room_join_requests      : "user_id"
   rooms ||--o{  room_members            : "room_id"
   rooms ||--o{  room_join_requests      : "room_id"
+
+  %% ──────────────────────────────────────────────
+  %% AI 평가 도메인
+  %% ──────────────────────────────────────────────
+  users             ||--o{  practice_recordings     : "user_id"
+  practice_sessions ||--o{  practice_recordings     : "session_id"
+  practice_recordings ||--o|  ai_analysis_jobs       : "recording_id"
+  users             ||--o{  ai_analysis_jobs        : "user_id"
+  ai_analysis_jobs  ||--o|  ai_analysis_results     : "job_id"
+  users             ||--o{  ai_analysis_results     : "user_id"
+  practice_sessions ||--o{  ai_analysis_results     : "session_id"
