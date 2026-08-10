@@ -31,6 +31,16 @@ jobs:
 
       - run: npm ci
 
+      # Diagnostic: show prisma runtime files and installed package (helps debug missing files)
+      - name: Check @prisma/client runtime files
+        run: |
+          echo "Listing prisma runtime (if present)"
+          ls -la node_modules/@prisma/client/runtime || true
+          echo "Listing hoisted prisma (.prisma) runtime (if present)"
+          ls -la node_modules/.prisma/client/runtime || true
+          echo "npm ls @prisma/client (show installed location)"
+          npm ls @prisma/client || true
+
       # Generate Prisma client
       - run: npx prisma generate --schema=apps/api/prisma/schema.prisma
 
