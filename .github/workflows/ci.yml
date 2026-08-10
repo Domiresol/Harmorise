@@ -13,6 +13,24 @@ permissions:
 jobs:
   main:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: harmorise
+          POSTGRES_PASSWORD: harmorise
+          POSTGRES_DB: harmorise_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U harmorise"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://harmorise:harmorise@localhost:5432/harmorise_db
+      JWT_SECRET: ci-test-jwt-secret
+      PHONE_TOKEN_SECRET: ci-test-phone-token-secret
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,7 +63,7 @@ jobs:
       - run: npx prisma generate --schema=apps/api/prisma/schema.prisma
 
       # Install Playwright browsers for E2E tests
-      - run: npx playwright install
+      - run: npx playwright install --with-deps
 
       # Run format check and main tasks
       - run: npx nx format:check --base="remotes/origin/main"
